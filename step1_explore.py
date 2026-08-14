@@ -1,3 +1,6 @@
+# step1: quick look at the dataset before doing anything with it -
+# class counts per split, and a sanity check that images actually load and resize.
+
 import pandas as pd
 import os
 from PIL import Image
