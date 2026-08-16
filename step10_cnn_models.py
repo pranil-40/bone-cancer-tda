@@ -1,6 +1,8 @@
 # step10: CNN baselines for comparison against the Betti-vector classifiers.
 # Frozen-backbone transfer learning (only the final classifier layer is trained)
-# on 4 ImageNet-pretrained architectures, CPU-only, images resized to 64x64.
+# on 4 ImageNet-pretrained architectures, CPU-only, images resized to 128x128.
+# Reads splits_fixed/ (from step0_fix_splits.py) so train/test don't share
+# duplicate source images.
 
 import torch, torch.nn as nn, pandas as pd, numpy as np, os, time
 from torch.utils.data import Dataset, DataLoader
@@ -9,18 +11,17 @@ from PIL import Image
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 
 base = r"C:\projects\bone_cancer_tda"
-tfm = transforms.Compose([transforms.Resize((64,64)), transforms.ToTensor(),
+tfm = transforms.Compose([transforms.Resize((128,128)), transforms.ToTensor(),
       transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
 
 class BoneDS(Dataset):
-    """Loads an image split (train/test) straight from its _classes.csv, applying tfm on the fly."""
+    """Loads an image split from the corrected splits_fixed/ manifest, applying tfm on the fly."""
     def __init__(self, split):
-        df = pd.read_csv(os.path.join(base, split, "_classes.csv")); df.columns = df.columns.str.strip()
-        self.df, self.split = df, split
+        self.df = pd.read_csv(os.path.join(base, "splits_fixed", f"{split}.csv"))
     def __len__(self): return len(self.df)
     def __getitem__(self, i):
         r = self.df.iloc[i]
-        img = Image.open(os.path.join(base, self.split, r["filename"])).convert("RGB")
+        img = Image.open(os.path.join(base, r["source_split"], r["filename"])).convert("RGB")
         return tfm(img), int(r["cancer"])
 
 train_dl = DataLoader(BoneDS("train"), batch_size=32, shuffle=True)
