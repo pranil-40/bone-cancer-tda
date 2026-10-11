@@ -1,36 +1,45 @@
 # Bone Cancer X-ray Classification with Persistent Homology
 
-Comparing topological features (Betti curves from persistent homology, via GUDHI)
-and radiomics features (pyradiomics) against a plain CNN transfer-learning
-baseline, for classifying bone X-rays as cancerous vs. normal. Dataset is the
-[Bone Cancer Detection](https://universe.roboflow.com/normal-bones/bone-cancer-detection-xa7ru)
-set from Roboflow (8,811 images, CC BY 4.0).
+This project compares topological features (Betti curves from persistent homology, computed with GUDHI) against radiomics features (pyradiomics) and a plain CNN transfer-learning baseline for classifying bone X-rays as cancerous or normal. The data is the [Bone Cancer Detection](https://universe.roboflow.com/normal-bones/bone-cancer-detection-xa7ru) set from Roboflow (8,811 images, CC BY 4.0).
 
-## Data leakage: found, and fixed in two rounds
+## Layout
 
-**Round 1 — filename dedup (`step0_fix_splits.py`, superseded).** The
-train/valid/test split that ships with this dataset has duplicate source
-images across splits — stripping Roboflow's `.rf.<hash>` export suffix and
-comparing base filenames, 8,811 rows collapsed to 5,303 unique source images,
-with 367 of 781 unique `test/` images also present in `train/`. `step0_fix_splits.py`
-grouped rows by base filename and reassigned whole groups to one split.
+```
+1-Data/        splits, duplicate checks, exploration
+  splits/        train/valid/test manifests (the deduplicated split everything uses)
+2-Features/    feature extraction
+  betti/         Betti curve vectors (64, 128, 224 px)
+  radiomics/     pyradiomics features, plus the committed CSVs
+  cnn/           ResNet-18 / ResNet-50 embeddings
+3-Models/      classifiers and evaluation
+  betti/         RF / XGBoost / MLP on Betti vectors
+  cnn/           frozen-backbone transfer learning
+  radiomics/     XGBoost on radiomics features
+  fusion/        TDA + ResNet fusion models
+```
 
-**Round 2 — perceptual-hash dedup (`step0c_phash_dedup.py`, current).** A
-follow-up sanity check (`step0b_sanity_checks.py`) found that filename-based
-dedup missed real duplicates: the same source X-ray sometimes reappears under
-a completely unrelated filename (visually confirmed — e.g. `foot_8_2_png...`
-and `image-no47-normal-_png...` are the same photo). `step0c_phash_dedup.py`
-replaces the filename check with perceptual hashing (phash, hash_size=16,
-Hamming distance ≤ 10) across *all three* original splits at once, groups
-connected near-duplicates (via union-find), and reassigns whole groups the
-same way. This is now the canonical split — it overwrites `splits_fixed/`.
+Run every script from the repo root (for example `python 3-Models/betti/eval_resolution_dedup.py`). Each script has a hardcoded `base` path near the top that needs to point at your local copy of the repo. The image folders (`train/`, `valid/`, `test/`), `venv/`, `archive.zip` and all `.npz` files are gitignored. The radiomics CSVs are committed because they're small (1-10MB each) and slow to regenerate.
 
-Known limitation of round 2: standard phash is **not flip/rotation-invariant**,
-so a flipped or 90°-rotated copy of a training image would still slip through
-undetected. 5,990 unique groups found (of 8,811 images) should be read as "at
-least this many duplicates," not a hard floor.
+Intermediate `.npz` files are written to the repo root:
 
-Current (phash-deduped) split sizes:
+| File | Written by |
+|---|---|
+| `betti_64.npz` | `betti_curves.py` / `betti_curves_parallel.py` |
+| `betti_64_minlife{0,5,10,20}.npz` | `betti_min_lifetime.py` |
+| `betti_{128,224}_orig.npz` | `betti_resolution.py` (original leaky split) |
+| `betti_{128,224}_dedup.npz` | `betti_resolution_dedup.py` (deduplicated split) |
+| `resnet18_features_{train,valid,test}.npz` | `extract_resnet18.py` |
+| `resnet50_features_{train,valid,test}.npz` | `extract_resnet50.py` |
+
+## Data leakage: found and fixed in two rounds
+
+**Round 1: filename dedup (`1-Data/split_by_filename.py`, now superseded).** The train/valid/test split that ships with the dataset has duplicate source images across splits. After stripping Roboflow's `.rf.<hash>` export suffix and comparing base filenames, 8,811 rows collapsed to 5,303 unique source images, and 367 of the 781 unique `test/` images were also in `train/`. The script grouped rows by base filename and reassigned whole groups to one split.
+
+**Round 2: perceptual-hash dedup (`1-Data/split_by_phash.py`, current).** A follow-up check (`1-Data/check_duplicates.py`) showed that filename dedup missed real duplicates. The same source X-ray sometimes shows up under a completely unrelated filename (I confirmed this by eye, for example `foot_8_2_png...` and `image-no47-normal-_png...` are the same photo). `split_by_phash.py` replaces the filename check with perceptual hashing (phash, hash_size=16, Hamming distance <= 10) across all three original splits at once, groups connected near-duplicates with union-find, and reassigns whole groups the same way. This is now the canonical split and it overwrites `1-Data/splits/`.
+
+Known limitation of round 2: standard phash is not flip or rotation invariant, so a flipped or 90-degree-rotated copy of a training image can still slip through. The 5,990 unique groups found (out of 8,811 images) should be read as "at least this many duplicates."
+
+Split sizes after phash dedup:
 
 | Split | Images | % of total | Cancer / Normal | Cancer rate |
 |---|---|---|---|---|
@@ -38,12 +47,9 @@ Current (phash-deduped) split sizes:
 | valid | 879 | 10.0% | 388 / 491 | 0.4414 |
 | test | 891 | 10.1% | 375 / 516 | 0.4209 |
 
-Close to the original ~80/10/10 proportions and the dataset-wide cancer rate
-(0.4384). No duplicate group had inconsistent cancer labels, and every group
-is fully contained in one split.
+These are close to the original ~80/10/10 proportions and the dataset-wide cancer rate (0.4384). No duplicate group had inconsistent cancer labels, and every group sits entirely in one split.
 
-**What each round of fixing was actually worth** (same tuned classifiers,
-no retuning, at each stage):
+Here is how much each round of fixing changed the results (same tuned classifiers, no retuning at any stage):
 
 | | Original (leaky) | + filename dedup | + phash dedup (current) |
 |---|---|---|---|
@@ -58,79 +64,49 @@ no retuning, at each stage):
 | GoogLeNet AUC (CNN, 128x128) | 0.9314 | 0.9439 | 0.9345 |
 | EfficientNet-B0 AUC (CNN, 128x128) | 0.9273 | 0.9441 | 0.9182 |
 
-Every classifier dropped further after the more aggressive phash dedup than
-after the filename-only fix — exactly what you'd expect if round 1 had left
-real leakage on the table. AUC is still 0.92–0.97 after both rounds, which is
-strong, but see the next section before reading that as "the model learned
-bone cancer."
+Every classifier dropped further after the phash dedup than after the filename-only fix, which is what you'd expect if round 1 left real leakage behind. AUC is still 0.92 to 0.97 after both rounds, which is strong, but read the next section before taking that as "the model learned bone cancer."
 
-## Open issue, not yet fixed: naming-family / source confound
+## Open issue: naming-family / source confound
 
-A follow-up check (grouping images by filename "naming family" — `IMG0000xxx`,
-`bone-cancer_train_x`, `image-no###`, `tibia_osteosarcoma`, etc.) found that
-**nearly every naming family is 100% one class or 0% the other.** Roughly
-two-thirds of all cancer-labeled images come from a single `bone-cancer_train/
-valid/test` family; the rest come from families named directly after their
-diagnosis (`osteosarcoma`, `ewing`, `chondrosarcoma`...). The normal class is
-dominated by separately-branded collections, some of which (`istockphoto`,
-`chest`) aren't even the same imaging domain as the cancer examples. Mean
-brightness also differs sharply by class (cancer 81.0 vs. normal 60.9,
-Cohen's d ≈ 0.63 in the train set) — a downstream symptom of the same issue,
-not a separate one.
+I grouped images by filename "naming family" (`IMG0000xxx`, `bone-cancer_train_x`, `image-no###`, `tibia_osteosarcoma`, and so on) and found that nearly every family is 100% one class or 0% the other. Roughly two thirds of all cancer-labeled images come from a single `bone-cancer_train/valid/test` family. The rest come from families named after their diagnosis (`osteosarcoma`, `ewing`, `chondrosarcoma`...). The normal class is dominated by separately branded collections, and some of them (`istockphoto`, `chest`) aren't even the same imaging domain as the cancer examples. Mean brightness also differs sharply by class (cancer 81.0 vs. normal 60.9, Cohen's d around 0.63 in the train set), which looks like a downstream symptom of the same thing.
 
-This means the dataset is a merge of a cancer-specific source and a
-separately-curated "normal" source, each with its own visual fingerprint
-(compression, framing, contrast) independent of pathology. **Re-splitting
-cleanly (both rounds above) does not fix this** — it only stops the model
-from memorizing individual images; it does nothing to stop it from learning
-"this contrast/framing profile means cancer," because that shortcut is
-present throughout train *and* test identically, and generalizes across a
-clean split just as well as a leaky one.
+So the dataset is a merge of a cancer-specific source and a separately curated "normal" source, each with its own visual fingerprint (compression, framing, contrast) that has nothing to do with pathology. Re-splitting cleanly does not fix this. It only stops the model from memorizing individual images. A model can still learn "this contrast and framing means cancer," and that shortcut is present in train and test alike, so it generalizes across a clean split just as well as a leaky one.
 
-**Status: flagged, not resolved.** Whether to normalize per-source
-characteristics, exclude the purest problem sub-sources, or simply document
-this as a hard dataset limitation is still an open decision. Every AUC number
-in this README from 0.92 upward should be read with this in mind — it may
-substantially reflect source detection rather than pathology detection.
+**Status: flagged, not resolved.** I haven't decided yet whether to normalize per-source characteristics, drop the most extreme sub-sources, or just document this as a limitation of the dataset. Every AUC in this README above 0.92 should be read with this in mind, since it may partly reflect source detection instead of pathology detection.
 
 ## Pipeline order
 
-| Step | Script | Produces |
+| Folder | Script | What it does |
 |---|---|---|
-| 0 | `step0_fix_splits.py` | Filename-based split fix — **superseded by step0c**, kept as historical record |
-| 0b | `step0b_sanity_checks.py` | Diagnostic: class brightness/size stats + phash near-duplicate spot-check that motivated step0c |
-| 0c | `step0c_phash_dedup.py` | `splits_fixed/{train,valid,test}.csv` — **current** canonical leakage-free splits (phash-based, see above); also reports the naming-family/brightness breakdown |
-| 1 | `step1_explore.py` | Class counts per split, sanity-checks that images load |
-| 2 | `step2_betti.py` / `step2_betti_fast.py` | `betti_vectors_bone.npz` — 800-dim Betti-curve features at 64x64, on the **original (leaky)** splits (fast version is a parallelized rewrite, same output) |
-| 3 | `step3_models.py` | RF / XGBoost / MLP baseline metrics, default hyperparameters |
-| 4 | `step4_tuning.py` | Manual hyperparameter sweeps against the validation split (second/final round — see note in the file) |
-| 5 | `step5_best_models.py` | Test-set metrics using the tuned hyperparameters below |
-| 6 | `step6_betti_minlife.py` | `betti_vectors_bone_minlife{0,5,10,20}.npz` — 64x64 features with short-lived persistence pairs filtered out |
-| 7 | `step7_compare_minlife.py` | Validation AUC across the four `MIN_LIFE` settings |
-| 8 | `step8_betti_resolution.py` | `betti_vectors_bone_{128,224}.npz` — same features at higher resolution, on the **original (leaky)** splits |
-| 9 | `step9_final_eval.py` | Test-set metrics at 128x128/224x224, on the leaky splits |
-| 9b | `step9b_final_eval_64.py` | Same eval as step9, run against the original 64x64 features, for a same-format comparison point |
-| 8b | `step8b_betti_resolution_fixed.py` | `betti_vectors_bone_{128,224}_fixed.npz` — same Betti-curve math as step8, reading from the current `splits_fixed/` |
-| 9c | `step9c_final_eval_fixed.py` | Test-set metrics at 128x128/224x224 on the current corrected splits — same tuned hyperparameters, not retuned |
-| 10 | `step10_check_torch.py`, `step10_cnn_models.py` | Environment check, then CNN transfer-learning baseline (reads `splits_fixed/`) |
-| 11 | `step11_radiomics_extract.py` | `radiomics_features_{train,valid,test}.csv` — pyradiomics features on `splits_fixed/` |
-| 12 | `step12_radiomics_eval.py` | XGBoost train/tune/eval on the radiomics features |
+| 1-Data | `split_by_filename.py` | Filename-based split fix. Superseded by `split_by_phash.py`, kept as a record |
+| 1-Data | `check_duplicates.py` | Class brightness/size stats plus a phash near-duplicate spot check that led to the phash split |
+| 1-Data | `split_by_phash.py` | Writes `splits/{train,valid,test}.csv`, the current leakage-free splits. Also prints the naming-family and brightness breakdown |
+| 1-Data | `explore_dataset.py` | Class counts per split, and a check that images load |
+| 2-Features/betti | `betti_curves.py`, `betti_curves_parallel.py` | 800-dim Betti-curve features at 64x64 on the original (leaky) splits. The parallel version is a faster rewrite with the same output |
+| 3-Models/betti | `baseline_models.py` | RF / XGBoost / MLP baseline metrics, default hyperparameters |
+| 3-Models/betti | `tune_hyperparameters.py` | Manual hyperparameter sweeps on the validation split (second and final round, see the note in the file) |
+| 3-Models/betti | `tuned_models.py` | Test-set metrics with the tuned hyperparameters listed below |
+| 2-Features/betti | `betti_min_lifetime.py` | 64x64 features with short-lived persistence pairs filtered out (`MIN_LIFE` of 0, 5, 10, 20) |
+| 3-Models/betti | `compare_min_lifetime.py` | Validation AUC across the four `MIN_LIFE` settings |
+| 2-Features/betti | `betti_resolution.py` | Same features at 128x128 and 224x224, on the original (leaky) splits |
+| 3-Models/betti | `eval_resolution.py` | Test-set metrics at 128x128 / 224x224 on the leaky splits |
+| 3-Models/betti | `eval_64.py` | Same eval on the 64x64 features, as a comparison point |
+| 2-Features/betti | `betti_resolution_dedup.py` | Same Betti-curve math as `betti_resolution.py`, reading from the current `1-Data/splits/` |
+| 3-Models/betti | `eval_resolution_dedup.py` | Test-set metrics at 128x128 / 224x224 on the current splits, same tuned hyperparameters, not retuned |
+| 3-Models/cnn | `check_torch.py`, `transfer_learning.py` | Environment check, then the CNN transfer-learning baseline (reads `1-Data/splits/`) |
+| 2-Features/radiomics | `extract_radiomics.py` | pyradiomics features (first-order, GLCM, GLRLM, GLSZM, shape2D) on the current splits |
+| 3-Models/radiomics | `xgboost_radiomics.py` | XGBoost train, tune and eval on those features |
+| 2-Features/radiomics | `extract_radiomics_texture.py` | First-order plus texture only (adds GLDM and NGTDM, drops shape2D), 93 features |
+| 3-Models/radiomics | `xgboost_radiomics_texture.py` | XGBoost on the texture-only features |
+| 2-Features/cnn | `extract_resnet18.py`, `extract_resnet50.py` | Frozen ResNet embeddings (512-dim and 2048-dim) for the fusion models |
+| 3-Models/fusion | `late_fusion_resnet18.py`, `late_fusion_resnet18_tuned.py`, `late_fusion_resnet50.py` | Feature-level fusion of Betti vectors and ResNet embeddings |
+| 3-Models/fusion | `prediction_fusion.py` | Prediction-level fusion (weighted blend and stacked logistic regression) |
 
-`.npz` feature files, `train/`, `valid/`, `test/`, `venv/`, and `archive.zip`
-are all gitignored — regenerate them by running step2 (and step6/step8 for the
-min-life/resolution variants, or step0c + step8b for the corrected splits).
-`radiomics_features_*.csv` are **not** gitignored and are committed directly —
-they're small (~1-10MB each) and worth keeping for reproducibility rather than
-re-running the extraction.
+To regenerate the gitignored files, run `betti_curves_parallel.py` (and `betti_min_lifetime.py` / `betti_resolution.py` for the variants), or `split_by_phash.py` then `betti_resolution_dedup.py` for the corrected splits.
 
 ## Classifiers (Betti features)
 
-Betti vectors are standardized (`StandardScaler`, fit on train only) before
-going into any of these. Hyperparameters below were selected in `step4_tuning.py`
-against the (leaky) validation split and are the ones used in every eval script,
-including `step9c` on the corrected splits — none of this was retuned after
-either leakage fix, so the before/after comparisons above isolate the effect
-of the split fixes alone.
+Betti vectors are standardized (`StandardScaler`, fit on train only) before going into any of these. The hyperparameters below were picked in `tune_hyperparameters.py` against the (leaky) validation split and are used in every eval script, including `eval_resolution_dedup.py` on the corrected splits. Nothing was retuned after either leakage fix, so the before/after comparisons above isolate the effect of the split fixes.
 
 | Model | Hyperparameters |
 |---|---|
@@ -140,7 +116,7 @@ of the split fixes alone.
 
 All three use `random_state=42`.
 
-### Results on current (phash-deduped) splits (step9c)
+### Results on current (phash-deduped) splits (`eval_resolution_dedup.py`)
 
 | Resolution | Model | Acc | AUC | F1 | Prec | Recall | Sens | Spec |
 |---|---|---|---|---|---|---|---|---|
@@ -151,17 +127,9 @@ All three use `random_state=42`.
 | 224x224 | XGBoost | 0.8732 | 0.9515 | 0.8571 | 0.8149 | 0.9040 | 0.9040 | 0.8508 |
 | 224x224 | MLP | 0.8822 | 0.9498 | 0.8613 | 0.8534 | 0.8693 | 0.8693 | 0.8915 |
 
-## CNN baseline (step10)
+## CNN baseline (`3-Models/cnn/transfer_learning.py`)
 
-Four ImageNet-pretrained architectures — ResNet-18, ResNet-50, GoogLeNet, and
-EfficientNet-B0 — used as fixed feature extractors: every parameter is frozen
-except the final classifier layer (`fc` / `classifier`), which is replaced with
-a single linear output and trained for 3 epochs with Adam (`lr=1e-3`) and
-`BCEWithLogitsLoss`. Images are resized to 128x128 and normalized with standard
-ImageNet mean/std. Runs CPU-only — no CUDA available in this environment (see
-`step10_check_torch.py`). Reads from `splits_fixed/`. Note: the script doesn't
-fix a `torch` random seed, so re-running it will shift these numbers slightly
-run to run.
+Four ImageNet-pretrained architectures (ResNet-18, ResNet-50, GoogLeNet and EfficientNet-B0) are used as fixed feature extractors. Every parameter is frozen except the final classifier layer (`fc` / `classifier`), which is replaced with a single linear output and trained for 3 epochs with Adam (`lr=1e-3`) and `BCEWithLogitsLoss`. Images are resized to 128x128 and normalized with the standard ImageNet mean and std. It runs on CPU only, since there's no CUDA on my machine (see `check_torch.py`). The script doesn't fix a `torch` random seed, so rerunning it will shift these numbers slightly.
 
 ### Results on current (phash-deduped) splits, 128x128
 
@@ -172,61 +140,31 @@ run to run.
 | GoogLeNet | 0.8631 | 0.9345 | 0.8277 | 0.8799 | 0.7813 | 0.7813 | 0.9225 |
 | EfficientNet-B0 | 0.8373 | 0.9182 | 0.8129 | 0.7875 | 0.8400 | 0.8400 | 0.8353 |
 
-## Radiomics baseline (step11/step12)
+## Radiomics baseline
 
-`step11_radiomics_extract.py` runs pyradiomics on the same `splits_fixed/`
-splits, extracting first-order, GLCM, GLRLM, GLSZM, and 2D shape features
-(Mayerhoefer et al. convention) at 224x224 — **83 features total**, 0
-extraction failures across all 8,811 images.
+`extract_radiomics.py` runs pyradiomics on the same `1-Data/splits/` data. It extracts first-order, GLCM, GLRLM, GLSZM and 2D shape features (Mayerhoefer et al. convention) at 224x224, giving 83 features in total with 0 extraction failures across all 8,811 images.
 
-**Limitation, stated explicitly:** this dataset has no tumor segmentation
-mask, so the ROI is effectively the whole image. pyradiomics actually refuses
-a mask that's 100% foreground outright (it requires at least one
-background-labeled pixel to recognize a mask as "segmented"), so the real ROI
-is the whole frame minus a 2px border — a no-op workaround, not a real
-region of interest. Proper radiomics is built around a segmented lesion;
-using the full frame dilutes first-order/texture stats with background and
-non-lesion anatomy, and makes the shape2D features close to meaningless,
-since every image shares the same canvas size and an "everything" mask —
-confirmed below, where no shape2D feature makes the top-15 importances.
+**Limitation:** the dataset has no tumor segmentation mask, so the ROI is effectively the whole image. pyradiomics refuses a mask that is 100% foreground (it needs at least one background pixel to treat the mask as segmented), so the actual ROI is the whole frame minus a 2px border. That's a workaround to get past the check, not a real region of interest. Proper radiomics is built around a segmented lesion. Using the full frame dilutes first-order and texture stats with background and normal anatomy, and it makes the shape2D features close to meaningless, since every image shares the same canvas size and an "everything" mask. Consistent with that, no shape2D feature makes the top-15 importances.
 
-pyradiomics has no prebuilt Windows wheel and needs a C++ compiler to install
-(Microsoft C++ Build Tools) — a one-time environment setup, not a code issue.
+pyradiomics has no prebuilt Windows wheel and needs a C++ compiler to install (Microsoft C++ Build Tools). That's a one-time setup issue and has nothing to do with the code.
 
-XGBoost, starting from the Betti-vector's tuned hyperparameters
-(`n_estimators=200, max_depth=15, learning_rate=0.3, subsample=0.6,
-colsample_bytree=0.8`) as a reference point: validation AUC 0.9628 straight
-off. A one-at-a-time sweep around that point found a marginally better
-combination (`max_depth=9, learning_rate=0.1, subsample=0.8,
-colsample_bytree=1.0`), but the gain was 0.9628 → 0.9630 — noise-level, not
-a meaningful improvement. The Betti-tuned hyperparameters transferred
-essentially unchanged to an 83-feature space ~10x smaller than the Betti
-vectors.
+For XGBoost I started from the Betti-vector hyperparameters (`n_estimators=200, max_depth=15, learning_rate=0.3, subsample=0.6, colsample_bytree=0.8`) as a reference point, which gave a validation AUC of 0.9628 right away. A one-at-a-time sweep around that point found a marginally better combination (`max_depth=9, learning_rate=0.1, subsample=0.8, colsample_bytree=1.0`), but the gain was 0.9628 to 0.9630, which is noise. The Betti-tuned hyperparameters carried over almost unchanged to a feature space about 10x smaller than the Betti vectors.
 
-### Test results (final config: `max_depth=9, learning_rate=0.1, subsample=0.8, colsample_bytree=1.0, n_estimators=200`)
+### Test results (`max_depth=9, learning_rate=0.1, subsample=0.8, colsample_bytree=1.0, n_estimators=200`)
 
 | Acc | AUC | F1 | Prec | Recall | Sens | Spec |
 |---|---|---|---|---|---|---|
 | 0.9080 | 0.9686 | 0.8932 | 0.8728 | 0.9147 | 0.9147 | 0.9031 |
 
-Top feature importances are dominated by GLCM texture (`DifferenceAverage`
-0.346, `Idm` 0.210 — together over half of total importance), then more
-GLCM/GLRLM/first-order features. As predicted by the whole-image-ROI
-limitation above, **no `shape2D` feature appears in the top 15.**
+Feature importance is dominated by GLCM texture (`DifferenceAverage` 0.346 and `Idm` 0.210, together over half of the total), followed by more GLCM, GLRLM and first-order features.
 
-This AUC (0.9686) is in the same range as Betti (0.94–0.95) and CNN
-(0.92–0.95) on the same splits — not evidence that radiomics "works better,"
-since all three are equally exposed to the naming-family/source confound
-described above. GLCM texture features in particular are exactly the kind of
-per-source fingerprint (compression, contrast profile) that confound could be
-hiding in.
+This AUC (0.9686) is in the same range as Betti (0.94 to 0.95) and the CNNs (0.92 to 0.95) on the same splits. I wouldn't read it as radiomics working better, since all three are equally exposed to the source confound described above. GLCM texture features are exactly the kind of per-source fingerprint (compression, contrast profile) that the confound could be hiding in.
 
-## A couple of things worth knowing about the features
+## Fusion models
 
-- The "4 channels" in the Betti vectors (grayscale mean, R, G, B) are mostly
-  redundant: since the source X-rays are grayscale saved as RGB, R, G, and B
-  are pixel-identical, so 600 of the 800 feature dimensions duplicate the
-  grayscale channel's information.
-- `step4_tuning.py` reflects only the second of two tuning rounds that were
-  run — the first round's file was overwritten before it was ever committed,
-  so its exact sweep values aren't recoverable.
+`3-Models/fusion/` has two kinds of fusion between the Betti vectors (128x128) and frozen ResNet embeddings. `late_fusion_resnet18.py` and `late_fusion_resnet50.py` project each branch to 32 dims, concatenate, and train a linear head (the ResNet-18 version reached AUC 0.9751 on test). `late_fusion_resnet18_tuned.py` adds hidden layers, BatchNorm, dropout and weight decay on top of that. `prediction_fusion.py` instead combines the output probabilities of an XGBoost-on-Betti model and a ResNet-18 head, either with a validation-tuned blend weight or a stacked logistic regression. All of these use the same splits and the same source confound applies.
+
+## Things worth knowing about the features
+
+- The 4 "channels" in the Betti vectors (grayscale mean, R, G, B) are mostly redundant. The source X-rays are grayscale saved as RGB, so R, G and B are pixel-identical, and 600 of the 800 feature dimensions duplicate the grayscale channel.
+- `tune_hyperparameters.py` only reflects the second of two tuning rounds. The first round's file was overwritten before I committed it, so its exact sweep values can't be recovered.
