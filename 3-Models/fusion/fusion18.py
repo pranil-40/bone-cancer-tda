@@ -1,11 +1,6 @@
-# Feature-level late fusion. Projects the 800-dim Betti vector (128x128,
-# 1-Data/splits/) down to 32 dims and the 512-dim frozen ResNet-18 embedding
-# (resnet18.py) down to 32 dims, concatenates them into a 64-dim
-# vector, and classifies with a single linear layer. Both projections and the
-# classifier are trained together. The ResNet backbone stays frozen (features
-# are pre-extracted).
-# Same splits as everything else, so the naming-family confound described in
-# the README still applies.
+# feature-level late fusion. 800-dim Betti vector -> 32 and the 512-dim ResNet-18
+# embedding (resnet18.py) -> 32, concat to 64, one linear layer on top. trained
+# jointly, ResNet stays frozen (features are precomputed)
 
 import copy
 import os
@@ -22,8 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 base = r"C:\projects\bone_cancer_tda"
 SIZE = 128
-LR = 1e-3  # XGBoost's learning_rate=0.3 is a boosting shrinkage value, not an NN
-           # step size, and would diverge here
+LR = 1e-3  # XGBoost's 0.3 would diverge for an NN
 MAX_EPOCHS = 50
 BATCH_SIZE = 4
 LR_PATIENCE = 5
@@ -33,9 +27,7 @@ torch.manual_seed(42)
 
 
 def load_split_features(split):
-    """Load the 800-dim Betti features (positional order, no rows dropped relative to
-    1-Data/splits/) and the 512-dim ResNet features (filename-keyed), then join by
-    filename so a silent misalignment can't slip through."""
+    # betti features are matched by position, resnet features by filename (checked against the manifest)
     betti = np.load(f"betti_128_dedup.npz")
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
     X_tda = betti[f"X{suffix}"]
@@ -54,7 +46,7 @@ def load_split_features(split):
 
 
 class LateFusionNet(nn.Module):
-    """TDA branch (800->32) + CNN branch (512->32) -> concat(64) -> single-logit classifier."""
+    # tda branch 800->32, cnn branch 512->32, concat, linear
     def __init__(self):
         super().__init__()
         self.tda_branch = nn.Sequential(nn.Linear(800, 32), nn.ReLU())
@@ -150,21 +142,19 @@ if __name__ == "__main__":
               f"{'(best)' if improved else f'(no improvement {epochs_no_improve}/{EARLY_STOP_PATIENCE})'}")
 
         if epochs_no_improve >= EARLY_STOP_PATIENCE:
-            print(f"\nEarly stopping at epoch {epoch}: no val AUC improvement for {EARLY_STOP_PATIENCE} epochs.")
+            print(f"\nstopping early at epoch {epoch}")
             break
     else:
-        print(f"\nReached MAX_EPOCHS={MAX_EPOCHS} without triggering early stopping.")
+        print(f"\nran all {MAX_EPOCHS} epochs")
 
-    print(f"\nBest validation AUC: {best_auc:.4f} at epoch {best_epoch} "
-          f"(final epoch run: {epoch}, {epoch - best_epoch} epochs after best)")
+    print(f"\nbest val AUC {best_auc:.4f} at epoch {best_epoch} (ran {epoch} epochs)")
 
     model.load_state_dict(best_state)
     test_probs = predict_probs(model, Xte_tda_t, Xte_cnn_t)
     metrics = evaluate(yte, test_probs)
 
-    print(f"\n=== Test-set results (late fusion, best checkpoint epoch {best_epoch}) ===")
+    print(f"\ntest results (best epoch {best_epoch}):")
     for k, v in metrics.items():
         print(f"{k}: {v:.4f}")
 
-    print(f"\nFeature dimension flow: TDA {Xtr_tda.shape[1]} -> 32, CNN {Xtr_cnn.shape[1]} -> 32, "
-          f"concat -> {32+32}, classifier -> 1")
+    print(f"\nTDA {Xtr_tda.shape[1]} -> 32, CNN {Xtr_cnn.shape[1]} -> 32, concat -> 64, classifier -> 1")

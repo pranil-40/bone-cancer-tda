@@ -1,7 +1,6 @@
-# Re-extract Betti vectors at 64x64, dropping persistence pairs with a lifetime
-# below MIN_LIFE (short-lived features are probably noise). Run once per
-# MIN_LIFE value (0, 5, 10, 20), then compare them with
-# 3-Models/betti/compare_minlife.py.
+# Betti vectors at 64x64 again, but drops persistence pairs shorter than
+# MIN_LIFE (probably noise). run it for MIN_LIFE = 0, 5, 10, 20 and compare
+# with compare_minlife.py
 
 import numpy as np, pandas as pd, gudhi, time, os
 from PIL import Image
@@ -12,7 +11,6 @@ SIZE = 64
 MIN_LIFE = 20  # change this to test filtering: try 0, 5, 10, 20
 
 def load_split(split):
-    """Load one split's images (resized to SIZE x SIZE RGB) and cancer labels."""
     df = pd.read_csv(os.path.join(base, split, "_classes.csv"))
     df.columns = df.columns.str.strip()
     imgs, labels = [], []
@@ -24,7 +22,6 @@ def load_split(split):
     return np.array(imgs), np.array(labels)
 
 def filter_life(pairs, min_life):
-    """Drop persistence pairs shorter-lived than min_life; permanent (infinite) features always survive."""
     if len(pairs) == 0:
         return pairs
     life = pairs[:, 1] - pairs[:, 0]
@@ -32,7 +29,6 @@ def filter_life(pairs, min_life):
     return pairs[keep]
 
 def betti_vector(img, n_thresholds=100, min_life=MIN_LIFE):
-    """Betti curve extraction as in betti_fast.py, plus a min-lifetime filter before counting."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [img.mean(axis=2), img[:,:,0].astype(float), img[:,:,1].astype(float), img[:,:,2].astype(float)]
     out = []
@@ -46,7 +42,6 @@ def betti_vector(img, n_thresholds=100, min_life=MIN_LIFE):
     return np.concatenate(out)
 
 def process(split):
-    """Run betti_vector() over an entire split in parallel across all CPU cores."""
     print(f"Loading {split}...")
     imgs, labels = load_split(split)
     print(f"Computing {len(imgs)} vectors, min_life={MIN_LIFE}, using {cpu_count()} cores...")

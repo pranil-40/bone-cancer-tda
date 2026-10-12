@@ -1,10 +1,6 @@
-# Trains and evaluates XGBoost on the radiomics features from
-# extract.py. Starts from the hyperparameters already tuned for the
-# Betti-vector XGBoost (tune.py, eval_size_dedup.py) and
-# checks them against validation AUC on a very different feature space (83
-# named radiomics features vs. 800 anonymous Betti dimensions). Same
-# one-at-a-time sweep around a reference point as before, only re-tuning where
-# a sweep beats the baseline.
+# XGBoost on the radiomics features from extract.py. starts from the Betti-tuned
+# params (tune.py, eval_size_dedup.py), checks them on validation, then sweeps
+# one param at a time around them. only keeps a change if it helps
 
 import numpy as np
 import pandas as pd
@@ -34,15 +30,13 @@ def make_xgb(**overrides):
 
 
 def val_auc(params, X_train, y_train, X_val, y_val):
-    """Fit with the given params and return validation AUC."""
     m = make_xgb(**params)
     m.fit(X_train, y_train)
     return roc_auc_score(y_val, m.predict_proba(X_val)[:, 1])
 
 
 def sweep_and_pick(param_name, values, base_params, X_train, y_train, X_val, y_val):
-    """Same style as tune.py: vary one hyperparameter around the reused
-    Betti config, holding the others fixed, and report AUC for each value."""
+    # vary one param, hold the rest, print val AUC
     print(f"\n-- {param_name} (baseline={base_params[param_name]}) --")
     best_v, best_auc = base_params[param_name], None
     for v in values:
@@ -79,11 +73,11 @@ if __name__ == "__main__":
     X_test_s = scaler.transform(X_test)
 
     baseline_auc = val_auc(BETTI_XGB_PARAMS, X_train_s, y_train, X_val_s, y_val)
-    print(f"\n=== Reused Betti-vector XGBoost hyperparameters on radiomics features ===")
+    print("\nBetti-tuned XGBoost params on the radiomics features:")
     print(f"{BETTI_XGB_PARAMS}")
-    print(f"Validation AUC with reused hyperparameters: {baseline_auc:.4f}")
+    print(f"validation AUC: {baseline_auc:.4f}")
 
-    print("\n=== Sequential one-at-a-time sweep around the reused config ===")
+    print("\nsweeping one param at a time")
     tuned = dict(BETTI_XGB_PARAMS)
     sweeps = [
         ("learning_rate", [0.01, 0.05, 0.1, 0.3, 0.5]),
@@ -100,25 +94,25 @@ if __name__ == "__main__":
             tuned[name] = best_v
 
     tuned_auc = val_auc(tuned, X_train_s, y_train, X_val_s, y_val)
-    print(f"\nBest value per sweep: {best_per_param}")
-    print(f"Combined config: {tuned}")
-    print(f"Validation AUC, reused baseline vs combined-best: {baseline_auc:.4f} vs {tuned_auc:.4f}")
+    print(f"\nbest per param: {best_per_param}")
+    print(f"combined: {tuned}")
+    print(f"val AUC, baseline vs combined: {baseline_auc:.4f} vs {tuned_auc:.4f}")
 
     if tuned_auc > baseline_auc + 1e-4:
         final_params = tuned
-        print("Retuning improved validation AUC - using the combined config for test evaluation.")
+        print("combined config is better on validation, using it for test")
     else:
         final_params = BETTI_XGB_PARAMS
-        print("Retuning did not improve on the reused Betti hyperparameters - keeping them as-is.")
+        print("no improvement, keeping the Betti params")
 
-    print(f"\n=== Final XGBoost config: {final_params} ===")
+    print(f"\nfinal config: {final_params}")
     model = make_xgb(**final_params)
     model.fit(X_train_s, y_train)
     y_pred = model.predict(X_test_s)
     y_prob = model.predict_proba(X_test_s)[:, 1]
     m = evaluate(y_test, y_pred, y_prob)
 
-    print("\n=== Test-set results (radiomics features, XGBoost) ===")
+    print("\ntest results:")
     for k, v in m.items():
         print(f"{k}: {v:.4f}")
 

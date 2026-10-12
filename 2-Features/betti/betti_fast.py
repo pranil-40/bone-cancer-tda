@@ -1,6 +1,5 @@
-# Same Betti vector extraction as betti.py, but with one cubical complex
-# per channel instead of one per threshold, and images processed in parallel.
-# Output should match betti.py, just faster.
+# same as betti.py but one cubical complex per channel instead of one per
+# threshold, and parallel across images
 
 import numpy as np
 import pandas as pd
@@ -13,7 +12,6 @@ from multiprocessing import Pool, cpu_count
 base = r"C:\projects\bone_cancer_tda"
 
 def load_split(split):
-    """Load one split's images (resized to 64x64 RGB) and cancer labels from its _classes.csv."""
     df = pd.read_csv(os.path.join(base, split, "_classes.csv"))
     df.columns = df.columns.str.strip()
     images, labels = [], []
@@ -27,8 +25,6 @@ def load_split(split):
     return np.array(images), np.array(labels)
 
 def betti_vector_fast(image_rgb, n_thresholds=100):
-    """Same output as betti_vector() in betti.py, but reads persistence pairs once per channel
-    and counts them across thresholds instead of rebuilding the complex each time."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [
         image_rgb.mean(axis=2),
@@ -38,7 +34,7 @@ def betti_vector_fast(image_rgb, n_thresholds=100):
     ]
     result = []
     for ch in channels:
-        # build ONE cubical complex using pixel values directly as filtration
+        # one complex per channel, pixel values as the filtration
         cc = gudhi.CubicalComplex(dimensions=[64, 64],
                                   top_dimensional_cells=ch.flatten())
         cc.compute_persistence()
@@ -53,7 +49,6 @@ def betti_vector_fast(image_rgb, n_thresholds=100):
     return np.concatenate(result)
 
 def process_split(split):
-    """Run betti_vector_fast() over an entire split in parallel across all CPU cores."""
     print(f"Loading {split}...")
     images, labels = load_split(split)
     print(f"Computing Betti vectors for {len(images)} images using {cpu_count()} cores...")

@@ -1,6 +1,5 @@
-# First pass at turning X-ray images into Betti curve feature vectors.
-# Builds a new cubical complex for every threshold, so it's slow.
-# betti_fast.py is the faster version.
+# first pass at the Betti curve vectors. builds a new cubical complex for every
+# threshold so it's slow, betti_fast.py does the same thing faster
 
 import numpy as np
 import pandas as pd
@@ -12,7 +11,7 @@ from PIL import Image
 base = r"C:\projects\bone_cancer_tda"
 #uhhhh i think  800-dimensional vectors - 4 channels × 100 thresholds × 2 Betti numbers = 200 dimensions per channel × 4 = 800 total.
 def load_split(split):
-    """Load one split's images (resized to 64x64 RGB) and cancer labels from its _classes.csv."""
+    # 64x64 RGB images and cancer labels for one split
     df = pd.read_csv(os.path.join(base, split, "_classes.csv"))
     df.columns = df.columns.str.strip()
     images, labels = [], []
@@ -26,7 +25,7 @@ def load_split(split):
     return np.array(images), np.array(labels)
 
 def betti_vector(image_rgb, n_thresholds=100):
-    """Sweep sublevel-set thresholds over each channel and return concatenated b0/b1 curves (800-dim)."""
+    # b0/b1 curves for each channel, 800 dims total
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [
         image_rgb.mean(axis=2),        # grayscale
@@ -51,7 +50,6 @@ def betti_vector(image_rgb, n_thresholds=100):
     return np.concatenate(result)
 
 def process_split(split):
-    """Run betti_vector() over an entire split and report progress/ETA as it goes."""
     print(f"Loading {split}...")
     images, labels = load_split(split)
     print(f"Computing Betti vectors for {len(images)} images...")
@@ -63,7 +61,7 @@ def process_split(split):
             elapsed = time.time() - start
             rate = (i + 1) / elapsed
             remaining = (len(images) - i - 1) / rate
-            print(f"  {i+1}/{len(images)} - {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
+            print(f"  {i+1}/{len(images)}, {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
     print(f"  Done in {time.time()-start:.0f}s")
     return X, labels
 

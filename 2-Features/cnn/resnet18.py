@@ -1,10 +1,7 @@
-# Pulls 512-dim ResNet-18 embeddings (fc layer swapped for Identity) for every
-# image in 1-Data/splits/ at 128x128. These feed the CNN branch of the late
-# fusion models. The backbone was never fine-tuned in cnn.py (only
-# the fc head was trained), so plain ImageNet weights give the same features
-# and that script doesn't need to run first.
-# Saved per split as .npz, keyed by filename so the fusion scripts can check
-# alignment against the Betti features instead of trusting row order.
+# 512-dim ResNet-18 features (fc swapped for Identity) for every image in
+# 1-Data/splits/ at 128x128, used by the fusion scripts. cnn.py only trained
+# the fc head, so plain ImageNet weights give the same features.
+# saved with filenames so the fusion scripts can check the row order
 
 import os
 import time
@@ -24,7 +21,6 @@ tfm = transforms.Compose([transforms.Resize((SIZE, SIZE)), transforms.ToTensor()
 
 
 class BoneDS(Dataset):
-    """Loads one split from 1-Data/splits/, applying tfm on the fly."""
     def __init__(self, split):
         self.df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
 
@@ -38,7 +34,6 @@ class BoneDS(Dataset):
 
 
 def build_backbone():
-    """Plain ImageNet-pretrained ResNet-18 with its fc layer bypassed, so forward() returns the 512-dim pooled embedding."""
     m = models.resnet18(weights="DEFAULT")
     m.fc = nn.Identity()
     m.eval()
@@ -48,7 +43,6 @@ def build_backbone():
 
 
 def extract(split, backbone):
-    """Run the frozen backbone over one split and collect its 512-dim features, labels, and filenames."""
     ds = BoneDS(split)
     dl = DataLoader(ds, batch_size=64, shuffle=False)
     feats, labels, filenames = [], [], []

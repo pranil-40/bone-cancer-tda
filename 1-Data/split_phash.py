@@ -1,14 +1,10 @@
-# Replaces the filename-based split in split_filename.py. dupes.py
-# showed the same X-ray can show up under completely different filenames (the
-# dataset looks like a merge of several Roboflow projects), so matching on base
-# filename missed real duplicates. This groups all 8,811 images by perceptual
-# hash (Hamming distance <= 10, same threshold as dupes.py) across
-# all three original splits at once, then reassigns whole groups to one split
-# using the same proportion and class-balance logic as before.
-# Also prints mean brightness and cancer ratio per filename "naming family", to
-# see whether the brightness gap tracks the source instead of the label.
+# replaces split_filename.py. dupes.py showed the same X-ray can show up under
+# totally different filenames, so matching base filenames missed duplicates.
+# this groups all 8,811 images by phash (hamming <= 10) across the three
+# original splits and gives each group to one split, same balancing as before.
+# also prints brightness and cancer ratio per filename family.
 #
-# Overwrites 1-Data/splits/*.csv. This is the split everything else uses.
+# overwrites 1-Data/splits/, which is what everything else reads
 
 import os
 import re
@@ -28,7 +24,6 @@ POPCOUNT = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint16)
 
 
 def load_all_rows():
-    """Read all three original _classes.csv files into one frame, tagging each row with source_split."""
     frames = []
     for split in SPLITS:
         df = pd.read_csv(os.path.join(base, split, "_classes.csv"))
@@ -39,8 +34,7 @@ def load_all_rows():
 
 
 def naming_family(filename):
-    """Best-effort bucket of the filename's naming convention, stripping the roboflow
-    export suffix/extension and any trailing digits, e.g. 'IMG0000345_jpg...' -> 'img'."""
+    # rough bucket for the filename style, e.g. IMG0000345_jpg... -> img
     stem = re.sub(r"\.rf\.[0-9a-f]{16,}\.(jpg|jpeg|png)$", "", filename.strip(), flags=re.I)
     stem = re.sub(r"_(png|jpg|jpeg)$", "", stem, flags=re.I)
     m = re.match(r"^([A-Za-z][A-Za-z_\-]*)", stem)
@@ -51,8 +45,7 @@ def naming_family(filename):
 
 
 def hash_and_brightness(df):
-    """Single pass over every image: compute its phash (for dedup) and mean
-    grayscale brightness (for the family/brightness report) without loading twice."""
+    # phash and mean brightness in one pass so each image is only opened once
     hashes = np.zeros((len(df), HASH_SIZE * HASH_SIZE), dtype=bool)
     brightness = np.zeros(len(df), dtype=np.float64)
     missing = []
@@ -70,7 +63,7 @@ def hash_and_brightness(df):
 
 
 class UnionFind:
-    """Standard disjoint-set structure for grouping images connected by a near-duplicate edge."""
+    # union-find to group images linked by a near-duplicate pair
     def __init__(self, n):
         self.parent = list(range(n))
 
@@ -87,8 +80,7 @@ class UnionFind:
 
 
 def build_dup_groups(hashes, threshold=DUP_THRESHOLD, chunk=300):
-    """Pairwise Hamming distance in chunks (packed bits + popcount lookup, since a full
-    NxN distance matrix would be too large), unioning any pair within threshold."""
+    # pairwise hamming distance in chunks, a full NxN matrix is too big
     n = len(hashes)
     packed = np.packbits(hashes, axis=1)  # (n, 32) uint8
     uf = UnionFind(n)
@@ -100,7 +92,7 @@ def build_dup_groups(hashes, threshold=DUP_THRESHOLD, chunk=300):
         rows, cols = np.where(dist <= threshold)
         for r, c in zip(rows, cols):
             global_r = start + r
-            if c > global_r:  # each pair counted once, from the lower index's chunk
+            if c > global_r:  # count each pair once
                 uf.union(global_r, c)
                 n_edges += 1
         print(f"  compared {end}/{n} images against the full set...")
@@ -109,8 +101,7 @@ def build_dup_groups(hashes, threshold=DUP_THRESHOLD, chunk=300):
 
 
 def assign_groups(df):
-    """Same greedy proportional/class-balance assignment as split_filename.py,
-    but keyed by phash group id instead of exact base filename."""
+    # same greedy assignment as split_filename.py but by phash group
     total_images = len(df)
     total_cancer = df["cancer"].sum()
     overall_cancer_rate = total_cancer / total_images
@@ -150,9 +141,7 @@ def assign_groups(df):
 
 
 def report_family_brightness(df):
-    """Mean brightness and cancer ratio per naming-convention family, across the whole
-    original dataset (not deduped - a duplicate's brightness is a real data point for
-    whichever family's filename it happened to carry)."""
+    # brightness and cancer ratio per filename family
     df["family"] = df["filename"].apply(naming_family)
     fam = df.groupby("family").agg(
         n=("cancer", "size"),
@@ -180,16 +169,16 @@ def main():
     print("Hashing + measuring brightness for every image (single pass)...")
     hashes, brightness, missing = hash_and_brightness(df)
     if missing:
-        print(f"  WARNING: {len(missing)} files listed in a _classes.csv were not found on disk, dropping them")
+        print(f"  {len(missing)} files in _classes.csv weren't found on disk, dropping them")
         df = df.drop(df.index[missing]).reset_index(drop=True)
         hashes = np.delete(hashes, missing, axis=0)
         brightness = np.delete(brightness, missing, axis=0)
     df["brightness"] = brightness
 
-    print("\n=== Naming-family / brightness / cancer-ratio breakdown (all original images) ===")
+    print("\nnaming family breakdown (all original images)")
     report_family_brightness(df)
 
-    print("\n=== Perceptual-hash near-duplicate grouping ===")
+    print("\nphash grouping")
     group_ids = build_dup_groups(hashes)
     df["group_id"] = group_ids
     n_groups = df["group_id"].nunique()
@@ -198,12 +187,12 @@ def main():
           f"(largest group: {group_sizes.max()} images, "
           f"{(group_sizes > 1).sum()} groups have 2+ images)")
 
-    print("\n=== Reassigning groups to splits ===")
+    print("\nassigning groups to splits")
     df, counts, cancer_counts, inconsistent, overall_rate = assign_groups(df)
     print(f"Overall cancer rate: {overall_rate:.4f}")
     if inconsistent:
-        print(f"WARNING: {len(inconsistent)} groups have inconsistent cancer labels across near-duplicates "
-              f"(majority used for balancing only).")
+        print(f"{len(inconsistent)} groups have mixed cancer labels across near-duplicates "
+              f"(majority used for balancing)")
     else:
         print("No label inconsistencies found within duplicate groups.")
 
@@ -211,12 +200,12 @@ def main():
     for split in SPLITS:
         n = counts[split]
         c = cancer_counts[split]
-        print(f"  {split}: {n} images ({n/len(df):.1%} of total) - {c} cancer / {n-c} normal "
+        print(f"  {split}: {n} images ({n/len(df):.1%} of total), {c} cancer / {n-c} normal "
               f"(cancer rate {c/n:.4f})")
 
     leak_check = df.groupby("group_id")["new_split"].nunique()
     assert (leak_check == 1).all(), "a duplicate group ended up split across multiple new splits"
-    print("\nSanity check passed: every near-duplicate group is fully contained in one split.")
+    print("\nCheck passed: every near-duplicate group is in one split.")
 
     os.makedirs(os.path.join(base, "1-Data", "splits"), exist_ok=True)
     for split in SPLITS:

@@ -1,6 +1,5 @@
-# Same tuned RF / XGBoost / MLP hyperparameters as eval_size.py (not
-# retuned), evaluated on the deduplicated splits from betti_size_dedup.py
-# instead of the original leaky betti_*_orig.npz files.
+# same hyperparameters as eval_size.py (not retuned) but on the deduped splits
+# from betti_size_dedup.py
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -11,7 +10,6 @@ from xgboost import XGBClassifier
 
 
 def make_models():
-    """Same tuned model settings as eval_size.py."""
     return {
         "Random Forest": RandomForestClassifier(n_estimators=500, max_depth=20, max_features="log2",
                           class_weight="balanced", random_state=42, n_jobs=-1),
@@ -25,7 +23,7 @@ for SIZE in [128, 224]:
     d = np.load(f"betti_{SIZE}_dedup.npz")
     s = StandardScaler()
     Xtr, Xte = s.fit_transform(d["X_train"]), s.transform(d["X_test"])
-    print(f"=== Results at {SIZE}x{SIZE} (deduplicated splits) ===")
+    print(f"results at {SIZE}x{SIZE} (deduped splits)")
     for name, m in make_models().items():
         m.fit(Xtr, d["y_train"])
         pred, prob = m.predict(Xte), m.predict_proba(Xte)[:, 1]

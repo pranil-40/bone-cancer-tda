@@ -1,9 +1,5 @@
-# Two sanity checks on the deduplicated splits:
-#   1. cancer vs. normal image stats (size, aspect ratio, brightness) in train,
-#      to look for a shortcut a classifier could pick up on
-#   2. perceptual hash check of a test sample against all of train, to catch
-#      near-identical images (crops, flips, rotations) that the filename-based
-#      split in split_filename.py would miss
+# two checks on the deduped splits: do cancer and normal images differ in size
+# or brightness, and do any test images have a near-duplicate in train (phash)
 
 import os
 import random
@@ -18,7 +14,6 @@ random.seed(42)
 
 
 def load_manifest(split):
-    """Read one 1-Data/splits/*.csv manifest."""
     return pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
 
 
@@ -27,7 +22,7 @@ def image_path(row):
 
 
 def class_stats():
-    """Compare width, height, aspect ratio, and mean brightness between cancer/normal in train."""
+    # size, aspect ratio and brightness for cancer vs normal in train
     df = load_manifest("train")
     rows = []
     for _, r in df.iterrows():
@@ -62,8 +57,7 @@ def class_stats():
 
 
 def near_duplicate_check(n_test_samples=30, hash_size=16, threshold=10):
-    """Sample test images, phash them, and compare against phashes of every train image
-    to catch visually-near-identical pairs the filename dedup missed."""
+    # phash a sample of test images and compare against every train image
     train_df = load_manifest("train")
     test_df = load_manifest("test")
 
@@ -105,7 +99,7 @@ def near_duplicate_check(n_test_samples=30, hash_size=16, threshold=10):
 
 
 if __name__ == "__main__":
-    print("=== Check 1: class-level stats (cancer vs normal, train) ===\n")
+    print("check 1: cancer vs normal stats in train\n")
     class_stats()
-    print("\n=== Check 2: perceptual-hash near-duplicate check (test sample vs train) ===")
+    print("\ncheck 2: test sample vs train, near-duplicates (phash)")
     near_duplicate_check()

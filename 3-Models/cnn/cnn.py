@@ -1,7 +1,5 @@
-# CNN baselines to compare against the Betti-vector classifiers.
-# Frozen-backbone transfer learning (only the last layer is trained) on 4
-# ImageNet-pretrained models, CPU only, images resized to 128x128.
-# Reads 1-Data/splits/ so train and test don't share duplicate source images.
+# CNN baselines: pretrained backbone frozen, only the last layer trained, 4
+# models, CPU, 128x128 images. reads 1-Data/splits/
 
 import torch, torch.nn as nn, pandas as pd, numpy as np, os, time
 from torch.utils.data import Dataset, DataLoader
@@ -14,7 +12,6 @@ tfm = transforms.Compose([transforms.Resize((128,128)), transforms.ToTensor(),
       transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
 
 class BoneDS(Dataset):
-    """Loads an image split from the 1-Data/splits/ manifest, applying tfm on the fly."""
     def __init__(self, split):
         self.df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     def __len__(self): return len(self.df)
@@ -27,7 +24,7 @@ train_dl = DataLoader(BoneDS("train"), batch_size=32, shuffle=True)
 test_dl  = DataLoader(BoneDS("test"), batch_size=32)
 
 def build_model(name):
-    """Load a pretrained backbone, swap in a 1-output classifier head, and freeze everything else."""
+    # swap in a 1-output head and freeze everything else
     if name == "resnet18": m = models.resnet18(weights="DEFAULT"); m.fc = nn.Linear(m.fc.in_features, 1)
     if name == "resnet50": m = models.resnet50(weights="DEFAULT"); m.fc = nn.Linear(m.fc.in_features, 1)
     if name == "googlenet": m = models.googlenet(weights="DEFAULT", aux_logits=True); m.fc = nn.Linear(m.fc.in_features, 1)
@@ -37,7 +34,7 @@ def build_model(name):
     return m
 
 def train_eval(name, epochs=3):
-    """Train the classifier head for a few epochs, then report test-set metrics (unfrozen params only)."""
+    # train the head for a few epochs, then evaluate on test
     m = build_model(name)
     opt = torch.optim.Adam((p for p in m.parameters() if p.requires_grad), lr=1e-3)
     lossf = nn.BCEWithLogitsLoss()

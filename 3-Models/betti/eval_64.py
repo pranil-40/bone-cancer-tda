@@ -1,6 +1,5 @@
-# Same eval and printout as eval_size.py, run on the original 64x64
-# features so the resolution comparison has a 64x64 baseline in the same
-# format. Model settings match tuned.py.
+# same as eval_size.py but on the 64x64 features, for comparison.
+# settings match tuned.py
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -19,7 +18,7 @@ models = {
                colsample_bytree=0.8, eval_metric="logloss", random_state=42),
     "MLP": MLPClassifier(hidden_layer_sizes=(128,64), solver="adam", max_iter=500, random_state=42),
 }
-print("=== Results at 64x64 (tuned) ===")
+print("results at 64x64 (tuned)")
 for name, m in models.items():
     m.fit(Xtr, d["y_train"])
     pred, prob = m.predict(Xte), m.predict_proba(Xte)[:, 1]

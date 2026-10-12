@@ -1,6 +1,5 @@
-# Baseline RF / XGBoost / MLP on the 64x64 Betti vectors with default
-# hyperparameters. A quick check that the features carry any signal before
-# spending time on tune.py.
+# default-settings RF / XGBoost / MLP on the 64x64 Betti vectors, to see if
+# there's any signal before tuning (tune.py)
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -29,7 +28,6 @@ models = {
 }
 
 def evaluate(y_true, y_pred, y_prob):
-    """Bundle the usual classification metrics plus sensitivity/specificity into one dict."""
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     sensitivity = tp / (tp + fn)
     specificity = tn / (tn + fp)

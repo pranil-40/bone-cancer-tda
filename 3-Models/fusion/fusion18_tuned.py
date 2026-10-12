@@ -1,18 +1,8 @@
-# Pushes the feature-level fusion model from fusion18.py (best AUC
-# in the project so far at 0.9751) further. That script uses the simplest setup
-# (single Linear(800->32) and Linear(512->32) branches, one linear head,
-# batch_size=4) and stays as the reference result. Changes here are for
-# performance only:
-#   - both branches get a hidden layer + BatchNorm + dropout instead of a single
-#     linear projection, since 800-dim TDA input against ~7,000 training
-#     samples risks overfitting
-#   - the classifier is a small 2-layer MLP instead of one linear layer
-#   - Adam gets weight_decay (L2)
-#   - dropout / weight_decay / batch_size / learning_rate are then swept one at
-#     a time on validation AUC, same convention as tune.py and
-#     xgb.py
-# Same splits as everything else, so the naming-family confound in the README
-# still applies.
+# tries to push fusion18.py (best AUC so far, 0.9751) further, that one stays as
+# the plain version. here each branch gets a hidden layer + BatchNorm + dropout
+# (800 inputs vs ~7,000 samples overfits easily), the head is a small MLP, Adam
+# gets weight decay, and then dropout / weight_decay / batch_size / lr are swept
+# one at a time on validation AUC like in tune.py
 
 import copy
 import os
@@ -36,7 +26,6 @@ BASELINE_CONFIG = {"dropout": 0.3, "weight_decay": 1e-4, "batch_size": 32, "lr":
 
 
 def load_split_features(split):
-    """Same load, join and alignment check as fusion18.py."""
     betti = np.load("betti_128_dedup.npz")
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
     X_tda = betti[f"X{suffix}"]
@@ -55,8 +44,7 @@ def load_split_features(split):
 
 
 class TunedLateFusionNet(nn.Module):
-    """TDA branch (800->128->32) + CNN branch (512->64->32), each with
-    BatchNorm+ReLU+Dropout, concat(64) -> small MLP classifier (64->32->1)."""
+    # tda 800->128->32, cnn 512->64->32, concat, small MLP head (64->32->1)
     def __init__(self, dropout=0.3):
         super().__init__()
         self.tda_branch = nn.Sequential(
@@ -106,7 +94,7 @@ def evaluate(y_true, probs, threshold=0.5):
 
 
 def train(config, data, verbose=False):
-    """Train one config to early-stop/max-epochs, return (best_val_auc, best_state)."""
+    # trains one config, returns the best val AUC and weights
     Xtr_tda_t, Xtr_cnn_t, ytr_t, Xva_tda_t, Xva_cnn_t, yva = data
     torch.manual_seed(42)
 
@@ -177,25 +165,24 @@ if __name__ == "__main__":
     data = (Xtr_tda_t, Xtr_cnn_t, ytr_t, Xva_tda_t, Xva_cnn_t, yva)
 
     baseline_auc, _ = train(BASELINE_CONFIG, data)
-    print(f"\nBaseline (deeper arch, un-swept config {BASELINE_CONFIG}): val_auc={baseline_auc:.4f}")
+    print(f"\nbaseline {BASELINE_CONFIG}: val_auc={baseline_auc:.4f}")
 
-    print("\n=== Sequential one-at-a-time sweep ===")
+    print("\nsweeping one param at a time")
     config = dict(BASELINE_CONFIG)
     config["dropout"] = sweep("fusion", "dropout", [0.0, 0.1, 0.3, 0.5], config, data)
     config["weight_decay"] = sweep("fusion", "weight_decay", [0.0, 1e-5, 1e-4, 1e-3], config, data)
     config["batch_size"] = sweep("fusion", "batch_size", [4, 16, 32, 64], config, data)
     config["lr"] = sweep("fusion", "lr", [5e-4, 1e-3, 2e-3], config, data)
-    print(f"\nCombined best config: {config}")
+    print(f"\nbest config: {config}")
 
     final_auc, final_state = train(config, data, verbose=True)
-    print(f"\nBest validation AUC with combined config: {final_auc:.4f} "
-          f"(baseline was {baseline_auc:.4f})")
+    print(f"\nval AUC with the best config: {final_auc:.4f} (baseline {baseline_auc:.4f})")
 
     model = TunedLateFusionNet(dropout=config["dropout"])
     model.load_state_dict(final_state)
     test_probs = predict_probs(model, Xte_tda_t, Xte_cnn_t)
     metrics = evaluate(yte, test_probs)
 
-    print(f"\n=== Test-set results (tuned late fusion, config={config}) ===")
+    print(f"\ntest results (config={config}):")
     for k, v in metrics.items():
         print(f"{k}: {v:.4f}")

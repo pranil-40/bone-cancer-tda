@@ -1,6 +1,5 @@
-# Betti vectors at 128x128 and 224x224 again, same math as betti_size.py,
-# but reading from 1-Data/splits/ instead of the original train/valid/test
-# folders. betti_size.py stays as the record of the run on the leaky split.
+# same as betti_size.py but reads 1-Data/splits/ instead of the original
+# folders. betti_size.py stays as the leaky run
 
 import numpy as np, pandas as pd, gudhi, time, os
 from PIL import Image
@@ -12,7 +11,6 @@ MIN_LIFE = 0
 
 
 def load_split(split, size):
-    """Load one split's images (resized to size x size) from the 1-Data/splits/ manifest."""
     df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     imgs, labels = [], []
     for _, row in df.iterrows():
@@ -24,7 +22,6 @@ def load_split(split, size):
 
 
 def betti_vector(img, size, n_thresholds=100):
-    """Sweep sublevel-set thresholds over each channel, same logic as betti_size.py."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [img.mean(axis=2), img[:, :, 0].astype(float), img[:, :, 1].astype(float), img[:, :, 2].astype(float)]
     out = []
@@ -42,7 +39,6 @@ def betti_vector(img, size, n_thresholds=100):
 
 
 def process(split, size):
-    """Load a split at the given resolution and compute its Betti feature matrix in parallel."""
     print(f"{split}: loading at {size}x{size}...")
     imgs, labels = load_split(split, size)
     print(f"{split}: computing {len(imgs)} vectors at {size}x{size}...")

@@ -1,9 +1,7 @@
-# First attempt at fixing the train/valid/test leakage. Roboflow's export put
-# copies of the same source X-ray (same base filename, different .rf.<hash>
-# suffix) into different splits. This groups images by base filename across
-# the whole dataset and reassigns each group to a single split, so no source
-# image ends up on both sides of a train/test boundary.
-# Writes 1-Data/splits/*.csv. Replaced by split_phash.py, kept for the record.
+# first try at fixing the leakage. Roboflow put copies of the same image (same
+# base filename, different .rf.<hash>) in different splits, so this groups by
+# base filename and gives each group to one split.
+# replaced by split_phash.py, kept for the record
 
 import os
 import re
@@ -12,17 +10,17 @@ import pandas as pd
 base = r"C:\projects\bone_cancer_tda"
 SPLITS = ["train", "valid", "test"]
 
-# original dataset proportions - what we're trying to preserve after reassignment
+# original proportions
 TARGET_PROPORTIONS = {"train": 7057 / 8811, "valid": 882 / 8811, "test": 872 / 8811}
 
 
 def base_name(filename):
-    """Strip Roboflow's '.rf.<hash>.<ext>' export suffix to recover the source image name."""
+    # strip the .rf.<hash> suffix to get the source image name
     return re.sub(r"\.rf\.[0-9a-f]{16,}\.(jpg|jpeg|png)$", "", filename.strip(), flags=re.I)
 
 
 def load_all_rows():
-    """Read all three original _classes.csv files into one frame, tagging each row with source_split."""
+    # all three original _classes.csv files in one dataframe
     frames = []
     for split in SPLITS:
         df = pd.read_csv(os.path.join(base, split, "_classes.csv"))
@@ -33,10 +31,8 @@ def load_all_rows():
 
 
 def assign_groups(df):
-    """Group rows by base source-image name, then greedily assign whole groups to
-    train/valid/test so no group crosses a split boundary, keeping each split's
-    image share close to TARGET_PROPORTIONS and its cancer rate close to the
-    dataset-wide cancer rate."""
+    # greedy: biggest groups first, each one goes to whichever split is furthest below
+    # its target size and cancer count
     df["base"] = df["filename"].apply(base_name)
 
     total_images = len(df)
@@ -44,7 +40,7 @@ def assign_groups(df):
     overall_cancer_rate = total_cancer / total_images
 
     groups = df.groupby("base")
-    # biggest groups first - placing them early keeps the greedy packing closer to target
+    # biggest groups first
     ordered = sorted(groups, key=lambda kv: (-len(kv[1]), kv[0]))
 
     target_count = {s: TARGET_PROPORTIONS[s] * total_images for s in SPLITS}
@@ -62,9 +58,7 @@ def assign_groups(df):
         gsize = len(rows)
         gcancer = rows["cancer"].sum()
 
-        # give the group to whichever split is furthest below its own target,
-        # in relative terms, so a small-target split (valid/test) isn't treated
-        # as "full" just because its absolute deficit is small
+        # furthest below target wins (relative, so valid/test don't look full early)
         best_split, best_score = None, float("-inf")
         for split in SPLITS:
             size_deficit = (target_count[split] - counts[split]) / target_count[split]
@@ -89,8 +83,8 @@ def main():
     print(f"Total rows: {len(df)}  |  unique source images (groups): {n_groups}")
     print(f"Overall cancer rate: {overall_rate:.4f}")
     if inconsistent:
-        print(f"\nWARNING: {len(inconsistent)} groups have inconsistent cancer labels across duplicates "
-              f"(same base image, different label) - not auto-resolved, using majority for balancing only.")
+        print(f"\n{len(inconsistent)} groups have mixed cancer labels across duplicates "
+              f"(same base image, different label), using the majority for balancing")
         for b in inconsistent[:10]:
             print(f"  {b}")
     else:
@@ -100,13 +94,13 @@ def main():
     for split in SPLITS:
         n = counts[split]
         c = cancer_counts[split]
-        print(f"  {split}: {n} images ({n/len(df):.1%} of total) - {c} cancer / {n-c} normal "
+        print(f"  {split}: {n} images ({n/len(df):.1%} of total), {c} cancer / {n-c} normal "
               f"(cancer rate {c/n:.4f})")
 
-    # sanity check: confirm no group landed in more than one new split
+    # no group should end up in two splits
     leak_check = df.groupby("base")["new_split"].nunique()
     assert (leak_check == 1).all(), "a base image group ended up split across multiple new splits"
-    print("\nSanity check passed: every source-image group is fully contained in one split.")
+    print("\nCheck passed: every source-image group is in one split.")
 
     os.makedirs(os.path.join(base, "1-Data", "splits"), exist_ok=True)
     for split in SPLITS:

@@ -1,6 +1,5 @@
-# Compares the MIN_LIFE = 0/5/10/20 feature sets from betti_minlife.py
-# using a fixed Random Forest config, to see whether dropping short-lived
-# persistence pairs helps validation AUC.
+# random forest on each MIN_LIFE version (0/5/10/20) to see whether filtering
+# short pairs helps validation AUC
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier

@@ -1,23 +1,14 @@
-# Prediction-level fusion, as opposed to the feature-level fusion in
-# fusion18.py. Two separately trained branches each produce a
-# probability per image, and the probabilities are combined two ways:
-#   A. optimized blend: p = w*p_tda + (1-w)*p_resnet, with w grid-searched on
-#      validation AUC only, then fixed for test
-#   B. stacked: a 2-feature logistic regression ([p_tda, p_resnet] -> label),
-#      trained on validation only, applied to test
-# Everything uses the phash-deduped splits, so the naming-family confound in the
-# README still applies.
+# prediction-level fusion (fusion18.py fuses the features instead). two models
+# each give a probability per image and I combine them two ways:
+#   A. blend: w*p_tda + (1-w)*p_resnet, with w picked on validation AUC
+#   B. stacking: logistic regression on [p_tda, p_resnet], fit on validation
 #
-# Branch 1 (TDA + XGBoost) reuses the tuned hyperparameters from
-# eval_size.py, not retuned.
-# Branch 2 (ResNet-18) rebuilds the frozen backbone + trained fc head setup from
-# cnn.py (Adam lr=1e-3, BCEWithLogitsLoss, 3 epochs, batch_size=32),
-# but trains the head on the 512-dim features from resnet18.py instead of
-# rerunning the CNN forward pass every step. Same math since the backbone is
-# frozen, with one difference: cnn.py ran forward passes with the
-# backbone in .train() mode, so BatchNorm running stats kept updating even with
-# frozen weights, while resnet18.py extracts in .eval() mode. That
-# shouldn't matter much for a backbone that was never fine-tuned.
+# the TDA model reuses the tuned XGBoost params from eval_size.py. the ResNet-18
+# model is the fc head from cnn.py (Adam 1e-3, 3 epochs, batch 32) trained on
+# the saved features from resnet18.py instead of rerunning the CNN. one small
+# difference: cnn.py ran with the backbone in train() mode so BatchNorm stats
+# kept updating, resnet18.py uses eval(). shouldn't matter since the backbone
+# isn't fine-tuned.
 
 import os
 
@@ -36,7 +27,6 @@ torch.manual_seed(42)
 
 
 def evaluate(y_true, probs, threshold=0.5):
-    """Same 7 metrics as the other scripts."""
     preds = (probs >= threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
     return {
@@ -51,12 +41,12 @@ def evaluate(y_true, probs, threshold=0.5):
 
 
 def print_metrics(title, metrics):
-    print(f"\n=== {title} ===")
+    print(f"\n{title}")
     for k, v in metrics.items():
         print(f"{k}: {v:.4f}")
 
 
-# ---------------------------------------------------------------- Branch 1
+# tda + xgboost branch
 
 def load_betti(split):
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
@@ -65,8 +55,6 @@ def load_betti(split):
 
 
 def tda_xgboost_branch():
-    """Train the already-tuned XGBoost model (hyperparameters from
-    eval_size.py, not retuned) on the 800-dim Betti vectors, return probabilities on valid/test."""
     Xtr, ytr = load_betti("train")
     Xva, yva = load_betti("valid")
     Xte, yte = load_betti("test")
@@ -86,7 +74,7 @@ def tda_xgboost_branch():
     return p_va, yva, p_te, yte
 
 
-# ---------------------------------------------------------------- Branch 2
+# resnet branch
 
 def load_resnet_features(split):
     d = np.load(f"resnet18_features_{split}.npz", allow_pickle=True)
@@ -94,9 +82,6 @@ def load_resnet_features(split):
 
 
 def resnet_branch():
-    """Rebuild cnn.py's resnet18 setup - frozen backbone
-    (cached 512-dim features from resnet18.py), trained single-linear classifier head,
-    same optimizer/loss/epoch count - and return probabilities on valid/test."""
     Xtr, ytr, _ = load_resnet_features("train")
     Xva, yva, _ = load_resnet_features("valid")
     Xte, yte, _ = load_resnet_features("test")
@@ -127,11 +112,10 @@ def resnet_branch():
     return p_va, yva, p_te, yte
 
 
-# ---------------------------------------------------------------- alignment
+# alignment check
 
 def check_alignment(split, y_tda, y_resnet):
-    """Same filename-order check as fusion18.py - confirms both branches'
-    valid/test rows refer to the same images in the same order before fusing."""
+    # both branches should line up with the manifest row order
     manifest = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     _, _, resnet_filenames = load_resnet_features(split)
     assert list(resnet_filenames) == list(manifest["filename"]), \
@@ -140,10 +124,10 @@ def check_alignment(split, y_tda, y_resnet):
     assert np.array_equal(y_tda, y_resnet), f"{split}: TDA and ResNet labels disagree after alignment check"
 
 
-# ---------------------------------------------------------------- fusion
+# fusion methods
 
 def optimized_blend(p_tda_va, p_resnet_va, y_va, p_tda_te, p_resnet_te):
-    """Method A: grid-search blend weight w on validation AUC only, apply fixed to test."""
+    # grid search w on validation AUC, then fix it for test
     best_w, best_auc = None, -1.0
     for w in np.arange(0.0, 1.0001, 0.05):
         blend = w * p_tda_va + (1 - w) * p_resnet_va
@@ -156,8 +140,6 @@ def optimized_blend(p_tda_va, p_resnet_va, y_va, p_tda_te, p_resnet_te):
 
 
 def stacked_meta_classifier(p_tda_va, p_resnet_va, y_va, p_tda_te, p_resnet_te):
-    """Method B: 2-feature logistic regression meta-classifier, trained on
-    validation [p_tda, p_resnet] pairs only, applied to test."""
     Xva = np.column_stack([p_tda_va, p_resnet_va])
     Xte = np.column_stack([p_tda_te, p_resnet_te])
     meta = LogisticRegression(random_state=42)

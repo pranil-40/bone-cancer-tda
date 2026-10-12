@@ -1,5 +1,4 @@
-# Quick look at the dataset: class counts per split, and a check that images
-# load and resize properly.
+# quick look at the data: class counts per split and one sample image
 
 import pandas as pd
 import os

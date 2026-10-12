@@ -1,18 +1,11 @@
-# Radiomics features (pyradiomics) on the phash-deduped splits, as a second
-# feature family to compare against the Betti curves. Extracts first-order,
-# GLCM, GLRLM, GLSZM and 2D shape features.
+# pyradiomics features (first-order, GLCM, GLRLM, GLSZM, shape2D) on the deduped
+# splits, as a second feature set to compare against the Betti vectors.
 #
-# Limitation: the dataset has no tumor segmentation masks, so the ROI is
-# basically the whole image. pyradiomics refuses a mask that is 100% foreground
-# (it needs at least one background pixel to treat the mask as segmented), so
-# the mask here is the full frame minus a 2px border. The border does nothing
-# scientifically, it only gets past that check. Real radiomics needs a
-# segmented lesion. With the whole frame, first-order and texture stats get
-# diluted by background and normal anatomy, and the shape2D features describe
-# the canvas instead of the pathology (every image is resized to the same
-# SIZE x SIZE and gets the same mask), so they come out nearly identical
-# across images. They're included anyway, and the near-zero variance shows
-# the problem.
+# there's no segmentation mask in this dataset so the ROI is basically the whole
+# image. pyradiomics won't take a mask that's all foreground, so the mask is the
+# full frame minus a 2px border. that only gets past the check, it isn't a real
+# ROI. shape2D comes out almost the same for every image because of it (same
+# canvas, same mask).
 
 import logging
 import os
@@ -36,8 +29,7 @@ _extractor = None
 
 
 def _init_worker():
-    """Build one extractor per worker process - pyradiomics extractors aren't picklable
-    across the multiprocessing.Pool boundary, so each process makes its own."""
+    # every worker builds its own extractor, they can't be pickled
     global _extractor
     ex = featureextractor.RadiomicsFeatureExtractor(force2D=True, force2Ddimension=0)
     ex.disableAllFeatures()
@@ -47,8 +39,7 @@ def _init_worker():
 
 
 def extract_one(args):
-    """Extract radiomics features for one image, using the whole frame as the ROI
-    (see the note at the top). Returns (filename, cancer, feature_dict_or_None, error_or_None)."""
+    # returns (filename, cancer, features, error)
     filename, source_split, cancer = args
     path = os.path.join(base, source_split, filename)
     try:
@@ -67,7 +58,6 @@ def extract_one(args):
 
 
 def process(split):
-    """Extract features for every image in one split, in parallel."""
     df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     args = list(zip(df["filename"], df["source_split"], df["cancer"]))
     print(f"{split}: extracting radiomics features for {len(args)} images at {SIZE}x{SIZE}...")
@@ -80,7 +70,7 @@ def process(split):
     failures = [(fn, err) for fn, _, feats, err in results if feats is None]
     ok = [(fn, cancer, feats) for fn, cancer, feats, err in results if feats is not None]
     if failures:
-        print(f"  WARNING: {len(failures)}/{len(args)} images failed feature extraction:")
+        print(f"  {len(failures)}/{len(args)} images failed:")
         for fn, err in failures[:20]:
             print(f"    {fn}: {err}")
 
@@ -89,7 +79,7 @@ def process(split):
     for fn, cancer, feats in ok:
         missing = [k for k in feature_names if k not in feats]
         if missing:
-            print(f"  WARNING: {fn} missing {len(missing)} features present elsewhere: {missing}")
+            print(f"  {fn} is missing {len(missing)} features: {missing}")
         rows.append({"filename": fn, "cancer": cancer, **{k: feats.get(k, np.nan) for k in feature_names}})
 
     out_df = pd.DataFrame(rows)

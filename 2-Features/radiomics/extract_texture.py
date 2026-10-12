@@ -1,11 +1,6 @@
-# Same extraction as extract.py with shape2D turned off: first-order
-# plus all the texture classes (firstorder, glcm, glrlm, glszm, gldm, ngtdm).
-# shape2D had no importance in the first run (the mask is the whole frame
-# minus a 2px border, so it just measures the canvas every image shares).
-#
-# The limitation described in extract.py still applies: there's no
-# real segmentation mask, so texture stats are still diluted by background.
-# Dropping shape doesn't change that.
+# same as extract.py with shape2D off (first-order plus glcm, glrlm, glszm, gldm,
+# ngtdm). shape2D had no importance in the first run. same ROI problem as
+# extract.py, so the texture stats are still diluted by background
 
 import logging
 import os
@@ -21,7 +16,7 @@ import radiomics
 
 base = r"C:\projects\bone_cancer_tda"
 SIZE = 224
-FEATURE_CLASSES = ["firstorder", "glcm", "glrlm", "glszm", "gldm", "ngtdm"]  # shape2D deliberately excluded
+FEATURE_CLASSES = ["firstorder", "glcm", "glrlm", "glszm", "gldm", "ngtdm"]  # no shape2D
 
 radiomics.logger.setLevel(logging.ERROR)
 
@@ -29,8 +24,7 @@ _extractor = None
 
 
 def _init_worker():
-    """One extractor per worker process - pyradiomics extractors aren't picklable
-    across the multiprocessing.Pool boundary, so each process builds its own."""
+    # every worker builds its own extractor, they can't be pickled
     global _extractor
     ex = featureextractor.RadiomicsFeatureExtractor(force2D=True, force2Ddimension=0)
     ex.disableAllFeatures()
@@ -40,8 +34,7 @@ def _init_worker():
 
 
 def extract_one(args):
-    """Extract texture-only radiomics features for one image (whole frame as ROI,
-    see the note at the top). Returns (filename, cancer, feature_dict_or_None, error_or_None)."""
+    # returns (filename, cancer, features, error)
     filename, source_split, cancer = args
     path = os.path.join(base, source_split, filename)
     try:
@@ -60,7 +53,6 @@ def extract_one(args):
 
 
 def process(split):
-    """Extract texture-only features for every image in one split, in parallel."""
     df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     args = list(zip(df["filename"], df["source_split"], df["cancer"]))
     print(f"{split}: extracting texture-only radiomics features for {len(args)} images at {SIZE}x{SIZE}...")
@@ -73,7 +65,7 @@ def process(split):
     failures = [(fn, err) for fn, _, feats, err in results if feats is None]
     ok = [(fn, cancer, feats) for fn, cancer, feats, err in results if feats is not None]
     if failures:
-        print(f"  WARNING: {len(failures)}/{len(args)} images failed feature extraction:")
+        print(f"  {len(failures)}/{len(args)} images failed:")
         for fn, err in failures[:20]:
             print(f"    {fn}: {err}")
 
@@ -82,7 +74,7 @@ def process(split):
     for fn, cancer, feats in ok:
         missing = [k for k in feature_names if k not in feats]
         if missing:
-            print(f"  WARNING: {fn} missing {len(missing)} features present elsewhere: {missing}")
+            print(f"  {fn} is missing {len(missing)} features: {missing}")
         rows.append({"filename": fn, "cancer": cancer, **{k: feats.get(k, np.nan) for k in feature_names}})
 
     out_df = pd.DataFrame(rows)

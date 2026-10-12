@@ -1,6 +1,4 @@
-# Same as resnet18.py but with ResNet-50 (2048-dim embedding). Same
-# reasoning: cnn.py only trained the fc head, so the plain
-# ImageNet backbone is equivalent. Feeds fusion50.py.
+# same as resnet18.py with ResNet-50 (2048-dim), used by fusion50.py
 
 import os
 import time
@@ -20,7 +18,6 @@ tfm = transforms.Compose([transforms.Resize((SIZE, SIZE)), transforms.ToTensor()
 
 
 class BoneDS(Dataset):
-    """Loads one split from 1-Data/splits/, applying tfm on the fly."""
     def __init__(self, split):
         self.df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
 
@@ -34,7 +31,6 @@ class BoneDS(Dataset):
 
 
 def build_backbone():
-    """Plain ImageNet-pretrained ResNet-50 with its fc layer bypassed, so forward() returns the 2048-dim pooled embedding."""
     m = models.resnet50(weights="DEFAULT")
     m.fc = nn.Identity()
     m.eval()
@@ -44,7 +40,6 @@ def build_backbone():
 
 
 def extract(split, backbone):
-    """Run the frozen backbone over one split and collect its 2048-dim features, labels, and filenames."""
     ds = BoneDS(split)
     dl = DataLoader(ds, batch_size=64, shuffle=False)
     feats, labels, filenames = [], [], []

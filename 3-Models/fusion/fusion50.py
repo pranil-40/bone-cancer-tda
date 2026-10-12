@@ -1,10 +1,6 @@
-# Same late fusion architecture and training setup as fusion18.py,
-# with the CNN branch swapped from ResNet-18 (512-dim) to ResNet-50 (2048-dim,
-# from resnet50.py). Everything else (batch_size=4, LR=1e-3, early
-# stopping patience 12, LR-reduction patience 5, best checkpoint restore) is
-# identical so the two results are comparable.
-# Same splits as everything else, so the naming-family confound in the README
-# still applies.
+# fusion18.py with ResNet-50 features (2048-dim, resnet50.py) instead. everything
+# else is the same (batch 4, lr 1e-3, early stopping 12, LR patience 5) so the
+# two are comparable
 
 import copy
 import os
@@ -30,9 +26,6 @@ torch.manual_seed(42)
 
 
 def load_split_features(split):
-    """Load the 800-dim Betti features (positional order) and the 2048-dim
-    ResNet-50 features (filename-keyed), joined by filename so a silent
-    misalignment can't slip through - same pattern as fusion18.py."""
     betti = np.load("betti_128_dedup.npz")
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
     X_tda = betti[f"X{suffix}"]
@@ -51,7 +44,6 @@ def load_split_features(split):
 
 
 class LateFusionNet(nn.Module):
-    """TDA branch (800->32) + CNN branch (2048->32) -> concat(64) -> single-logit classifier."""
     def __init__(self, cnn_dim):
         super().__init__()
         self.tda_branch = nn.Sequential(nn.Linear(800, 32), nn.ReLU())
@@ -146,26 +138,24 @@ if __name__ == "__main__":
               f"{'(best)' if improved else f'(no improvement {epochs_no_improve}/{EARLY_STOP_PATIENCE})'}")
 
         if epochs_no_improve >= EARLY_STOP_PATIENCE:
-            print(f"\nEarly stopping at epoch {epoch}: no val AUC improvement for {EARLY_STOP_PATIENCE} epochs.")
+            print(f"\nstopping early at epoch {epoch}")
             break
     else:
-        print(f"\nReached MAX_EPOCHS={MAX_EPOCHS} without triggering early stopping.")
+        print(f"\nran all {MAX_EPOCHS} epochs")
 
-    print(f"\nBest validation AUC: {best_auc:.4f} at epoch {best_epoch} "
-          f"(final epoch run: {epoch}, {epoch - best_epoch} epochs after best)")
+    print(f"\nbest val AUC {best_auc:.4f} at epoch {best_epoch} (ran {epoch} epochs)")
 
     model.load_state_dict(best_state)
     test_probs = predict_probs(model, Xte_tda_t, Xte_cnn_t)
     metrics = evaluate(yte, test_probs)
 
-    print(f"\n=== Test-set results (TDA+ResNet50 late fusion, best checkpoint epoch {best_epoch}) ===")
+    print(f"\ntest results, TDA+ResNet50 (best epoch {best_epoch}):")
     for k, v in metrics.items():
         print(f"{k}: {v:.4f}")
 
-    print(f"\nFeature dimension flow: TDA {Xtr_tda.shape[1]} -> 32, CNN {Xtr_cnn.shape[1]} -> 32, "
-          f"concat -> {32+32}, classifier -> 1")
+    print(f"\nTDA {Xtr_tda.shape[1]} -> 32, CNN {Xtr_cnn.shape[1]} -> 32, concat -> 64, classifier -> 1")
 
-    print(f"\n=== Comparison ===")
-    print(f"TDA+ResNet18 fusion (fusion18.py): AUC 0.9751")
-    print(f"ResNet-50 alone (cnn.py):      AUC 0.9486")
-    print(f"TDA+ResNet50 fusion (this run):             AUC {metrics['AUC']:.4f}")
+    print("\ncomparison (AUC)")
+    print("TDA+ResNet18 fusion (fusion18.py): 0.9751")
+    print("ResNet-50 alone (cnn.py):          0.9486")
+    print(f"TDA+ResNet50 fusion (this run):    {metrics['AUC']:.4f}")
