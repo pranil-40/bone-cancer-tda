@@ -1,6 +1,6 @@
 # First pass at turning X-ray images into Betti curve feature vectors.
 # Builds a new cubical complex for every threshold, so it's slow.
-# betti_curves_parallel.py is the faster version.
+# betti_fast.py is the faster version.
 
 import numpy as np
 import pandas as pd

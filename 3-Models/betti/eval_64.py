@@ -1,6 +1,6 @@
-# Same eval and printout as eval_resolution.py, run on the original 64x64
+# Same eval and printout as eval_size.py, run on the original 64x64
 # features so the resolution comparison has a 64x64 baseline in the same
-# format. Model settings match tuned_models.py.
+# format. Model settings match tuned.py.
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier

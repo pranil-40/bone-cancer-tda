@@ -1,18 +1,11 @@
-# Radiomics features (pyradiomics) on the phash-deduped splits, as a second
-# feature family to compare against the Betti curves. Extracts first-order,
-# GLCM, GLRLM, GLSZM and 2D shape features.
+# Same extraction as extract.py with shape2D turned off: first-order
+# plus all the texture classes (firstorder, glcm, glrlm, glszm, gldm, ngtdm).
+# shape2D had no importance in the first run (the mask is the whole frame
+# minus a 2px border, so it just measures the canvas every image shares).
 #
-# Limitation: the dataset has no tumor segmentation masks, so the ROI is
-# basically the whole image. pyradiomics refuses a mask that is 100% foreground
-# (it needs at least one background pixel to treat the mask as segmented), so
-# the mask here is the full frame minus a 2px border. The border does nothing
-# scientifically, it only gets past that check. Real radiomics needs a
-# segmented lesion. With the whole frame, first-order and texture stats get
-# diluted by background and normal anatomy, and the shape2D features describe
-# the canvas instead of the pathology (every image is resized to the same
-# SIZE x SIZE and gets the same mask), so they come out nearly identical
-# across images. They're included anyway, and the near-zero variance shows
-# the problem.
+# The limitation described in extract.py still applies: there's no
+# real segmentation mask, so texture stats are still diluted by background.
+# Dropping shape doesn't change that.
 
 import logging
 import os
@@ -28,16 +21,16 @@ import radiomics
 
 base = r"C:\projects\bone_cancer_tda"
 SIZE = 224
-FEATURE_CLASSES = ["firstorder", "glcm", "glrlm", "glszm", "shape2D"]
+FEATURE_CLASSES = ["firstorder", "glcm", "glrlm", "glszm", "gldm", "ngtdm"]  # shape2D deliberately excluded
 
-radiomics.logger.setLevel(logging.ERROR)  # pyradiomics is very chatty per-image by default
+radiomics.logger.setLevel(logging.ERROR)
 
 _extractor = None
 
 
 def _init_worker():
-    """Build one extractor per worker process - pyradiomics extractors aren't picklable
-    across the multiprocessing.Pool boundary, so each process makes its own."""
+    """One extractor per worker process - pyradiomics extractors aren't picklable
+    across the multiprocessing.Pool boundary, so each process builds its own."""
     global _extractor
     ex = featureextractor.RadiomicsFeatureExtractor(force2D=True, force2Ddimension=0)
     ex.disableAllFeatures()
@@ -47,16 +40,16 @@ def _init_worker():
 
 
 def extract_one(args):
-    """Extract radiomics features for one image, using the whole frame as the ROI
-    (see the note at the top). Returns (filename, cancer, feature_dict_or_None, error_or_None)."""
+    """Extract texture-only radiomics features for one image (whole frame as ROI,
+    see the note at the top). Returns (filename, cancer, feature_dict_or_None, error_or_None)."""
     filename, source_split, cancer = args
     path = os.path.join(base, source_split, filename)
     try:
         img = np.array(Image.open(path).convert("L").resize((SIZE, SIZE)), dtype=np.float64)
-        img3d = img[np.newaxis, :, :]           # pyradiomics/SimpleITK expect a 3D (z,y,x) array
+        img3d = img[np.newaxis, :, :]
         mask3d = np.ones_like(img3d, dtype=np.uint8)
-        mask3d[:, :2, :] = 0; mask3d[:, -2:, :] = 0    # pyradiomics requires >=1 background pixel
-        mask3d[:, :, :2] = 0; mask3d[:, :, -2:] = 0    # to recognize the mask as segmented at all
+        mask3d[:, :2, :] = 0; mask3d[:, -2:, :] = 0
+        mask3d[:, :, :2] = 0; mask3d[:, :, -2:] = 0
         sitk_img = sitk.GetImageFromArray(img3d)
         sitk_mask = sitk.GetImageFromArray(mask3d)
         result = _extractor.execute(sitk_img, sitk_mask)
@@ -67,10 +60,10 @@ def extract_one(args):
 
 
 def process(split):
-    """Extract features for every image in one split, in parallel."""
+    """Extract texture-only features for every image in one split, in parallel."""
     df = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     args = list(zip(df["filename"], df["source_split"], df["cancer"]))
-    print(f"{split}: extracting radiomics features for {len(args)} images at {SIZE}x{SIZE}...")
+    print(f"{split}: extracting texture-only radiomics features for {len(args)} images at {SIZE}x{SIZE}...")
 
     start = time.time()
     with Pool(cpu_count(), initializer=_init_worker) as pool:
@@ -101,6 +94,6 @@ def process(split):
 if __name__ == "__main__":
     for split in ["train", "valid", "test"]:
         out_df = process(split)
-        out_path = os.path.join(base, "2-Features", "radiomics", f"radiomics_features_{split}.csv")
+        out_path = os.path.join(base, "2-Features", "radiomics", f"texture_{split}.csv")
         out_df.to_csv(out_path, index=False)
         print(f"Wrote {out_path} ({out_df.shape[0]} rows, {out_df.shape[1]} columns)\n")

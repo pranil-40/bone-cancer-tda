@@ -1,15 +1,15 @@
-# Re-extract Betti vectors at 64x64, dropping persistence pairs with a lifetime
-# below MIN_LIFE (short-lived features are probably noise). Run once per
-# MIN_LIFE value (0, 5, 10, 20), then compare them with
-# 3-Models/betti/compare_min_lifetime.py.
+# Same idea as betti_minlife.py, but sweeping image resolution (SIZE)
+# instead of MIN_LIFE. Run once for SIZE=128 and once for SIZE=224.
+# This reads the original train/valid/test folders, so it includes the leaked
+# images. betti_size_dedup.py is the run on the deduplicated splits.
 
 import numpy as np, pandas as pd, gudhi, time, os
 from PIL import Image
 from multiprocessing import Pool, cpu_count
 
 base = r"C:\projects\bone_cancer_tda"
-SIZE = 64
-MIN_LIFE = 20  # change this to test filtering: try 0, 5, 10, 20
+SIZE = 224       # change to 128 or 224 for each run
+MIN_LIFE = 0     # best value from compare_minlife.py
 
 def load_split(split):
     """Load one split's images (resized to SIZE x SIZE RGB) and cancer labels."""
@@ -23,16 +23,8 @@ def load_split(split):
             labels.append(int(row["cancer"]))
     return np.array(imgs), np.array(labels)
 
-def filter_life(pairs, min_life):
-    """Drop persistence pairs shorter-lived than min_life; permanent (infinite) features always survive."""
-    if len(pairs) == 0:
-        return pairs
-    life = pairs[:, 1] - pairs[:, 0]
-    keep = np.isinf(pairs[:, 1]) | (life >= min_life)  # always keep infinite (permanent) features
-    return pairs[keep]
-
-def betti_vector(img, n_thresholds=100, min_life=MIN_LIFE):
-    """Betti curve extraction as in betti_curves_parallel.py, plus a min-lifetime filter before counting."""
+def betti_vector(img, n_thresholds=100):
+    """Betti curve extraction at whatever SIZE is set above, with the min-life filter applied."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [img.mean(axis=2), img[:,:,0].astype(float), img[:,:,1].astype(float), img[:,:,2].astype(float)]
     out = []
@@ -40,26 +32,29 @@ def betti_vector(img, n_thresholds=100, min_life=MIN_LIFE):
         cc = gudhi.CubicalComplex(dimensions=[SIZE, SIZE], top_dimensional_cells=ch.flatten())
         cc.compute_persistence()
         for dim in [0, 1]:
-            pairs = filter_life(cc.persistence_intervals_in_dimension(dim), min_life)
+            pairs = cc.persistence_intervals_in_dimension(dim)
+            if len(pairs):
+                life = pairs[:, 1] - pairs[:, 0]
+                pairs = pairs[np.isinf(pairs[:, 1]) | (life >= MIN_LIFE)]
             b = np.array([np.sum((pairs[:,0]<=t)&(pairs[:,1]>t)) for t in thresholds]) if len(pairs) else np.zeros(n_thresholds)
             out.append(b)
     return np.concatenate(out)
 
 def process(split):
     """Run betti_vector() over an entire split in parallel across all CPU cores."""
-    print(f"Loading {split}...")
+    print(f"{split}: loading...")
     imgs, labels = load_split(split)
-    print(f"Computing {len(imgs)} vectors, min_life={MIN_LIFE}, using {cpu_count()} cores...")
+    print(f"{split}: computing {len(imgs)} vectors at {SIZE}x{SIZE}...")
     start = time.time()
     with Pool(cpu_count()) as pool:
         X = np.array(pool.map(betti_vector, imgs))
-    print(f"  Done in {time.time()-start:.0f}s")
+    print(f"{split}: done in {time.time()-start:.0f}s")
     return X, labels
 
 if __name__ == "__main__":
     X_train, y_train = process("train")
     X_val, y_val = process("valid")
     X_test, y_test = process("test")
-    np.savez(f"betti_64_minlife{MIN_LIFE}.npz", X_train=X_train, y_train=y_train,
+    np.savez(f"betti_{SIZE}_orig.npz", X_train=X_train, y_train=y_train,
              X_val=X_val, y_val=y_val, X_test=X_test, y_test=y_test)
-    print(f"Saved betti_64_minlife{MIN_LIFE}.npz")
+    print(f"Saved betti_{SIZE}_orig.npz")

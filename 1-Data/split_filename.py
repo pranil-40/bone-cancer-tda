@@ -3,7 +3,7 @@
 # suffix) into different splits. This groups images by base filename across
 # the whole dataset and reassigns each group to a single split, so no source
 # image ends up on both sides of a train/test boundary.
-# Writes 1-Data/splits/*.csv. Replaced by split_by_phash.py, kept for the record.
+# Writes 1-Data/splits/*.csv. Replaced by split_phash.py, kept for the record.
 
 import os
 import re

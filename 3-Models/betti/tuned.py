@@ -1,5 +1,5 @@
 # Test-set numbers for RF / XGBoost / MLP with the hyperparameters found in
-# tune_hyperparameters.py, on the original 64x64 Betti features.
+# tune.py, on the original 64x64 Betti features.
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -24,7 +24,7 @@ models = {
 }
 
 def evaluate(y_true, y_pred, y_prob):
-    """Same metrics as baseline_models.py, written more compactly."""
+    """Same metrics as baseline.py, written more compactly."""
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return {"Accuracy": accuracy_score(y_true, y_pred), "AUC": roc_auc_score(y_true, y_prob),
             "F1": f1_score(y_true, y_pred), "Precision": precision_score(y_true, y_pred),

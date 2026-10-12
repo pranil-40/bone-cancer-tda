@@ -2,7 +2,7 @@
 # features, scored on the validation split. This went through two rounds of
 # tuning and the first round's file got overwritten before I committed it, so
 # what's here is only the second (final) sweep. The first round's ranges are
-# gone. The winning values are used in tuned_models.py.
+# gone. The winning values are used in tuned.py.
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier

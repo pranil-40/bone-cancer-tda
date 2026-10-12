@@ -1,6 +1,6 @@
-# Same as extract_resnet18.py but with ResNet-50 (2048-dim embedding). Same
-# reasoning: transfer_learning.py only trained the fc head, so the plain
-# ImageNet backbone is equivalent. Feeds late_fusion_resnet50.py.
+# Same as resnet18.py but with ResNet-50 (2048-dim embedding). Same
+# reasoning: cnn.py only trained the fc head, so the plain
+# ImageNet backbone is equivalent. Feeds fusion50.py.
 
 import os
 import time

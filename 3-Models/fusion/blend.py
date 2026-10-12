@@ -1,5 +1,5 @@
 # Prediction-level fusion, as opposed to the feature-level fusion in
-# late_fusion_resnet18.py. Two separately trained branches each produce a
+# fusion18.py. Two separately trained branches each produce a
 # probability per image, and the probabilities are combined two ways:
 #   A. optimized blend: p = w*p_tda + (1-w)*p_resnet, with w grid-searched on
 #      validation AUC only, then fixed for test
@@ -9,14 +9,14 @@
 # README still applies.
 #
 # Branch 1 (TDA + XGBoost) reuses the tuned hyperparameters from
-# eval_resolution.py, not retuned.
+# eval_size.py, not retuned.
 # Branch 2 (ResNet-18) rebuilds the frozen backbone + trained fc head setup from
-# transfer_learning.py (Adam lr=1e-3, BCEWithLogitsLoss, 3 epochs, batch_size=32),
-# but trains the head on the 512-dim features from extract_resnet18.py instead of
+# cnn.py (Adam lr=1e-3, BCEWithLogitsLoss, 3 epochs, batch_size=32),
+# but trains the head on the 512-dim features from resnet18.py instead of
 # rerunning the CNN forward pass every step. Same math since the backbone is
-# frozen, with one difference: transfer_learning.py ran forward passes with the
+# frozen, with one difference: cnn.py ran forward passes with the
 # backbone in .train() mode, so BatchNorm running stats kept updating even with
-# frozen weights, while extract_resnet18.py extracts in .eval() mode. That
+# frozen weights, while resnet18.py extracts in .eval() mode. That
 # shouldn't matter much for a backbone that was never fine-tuned.
 
 import os
@@ -66,7 +66,7 @@ def load_betti(split):
 
 def tda_xgboost_branch():
     """Train the already-tuned XGBoost model (hyperparameters from
-    eval_resolution.py, not retuned) on the 800-dim Betti vectors, return probabilities on valid/test."""
+    eval_size.py, not retuned) on the 800-dim Betti vectors, return probabilities on valid/test."""
     Xtr, ytr = load_betti("train")
     Xva, yva = load_betti("valid")
     Xte, yte = load_betti("test")
@@ -94,8 +94,8 @@ def load_resnet_features(split):
 
 
 def resnet_branch():
-    """Rebuild transfer_learning.py's resnet18 setup - frozen backbone
-    (cached 512-dim features from extract_resnet18.py), trained single-linear classifier head,
+    """Rebuild cnn.py's resnet18 setup - frozen backbone
+    (cached 512-dim features from resnet18.py), trained single-linear classifier head,
     same optimizer/loss/epoch count - and return probabilities on valid/test."""
     Xtr, ytr, _ = load_resnet_features("train")
     Xva, yva, _ = load_resnet_features("valid")
@@ -130,7 +130,7 @@ def resnet_branch():
 # ---------------------------------------------------------------- alignment
 
 def check_alignment(split, y_tda, y_resnet):
-    """Same filename-order check as late_fusion_resnet18.py - confirms both branches'
+    """Same filename-order check as fusion18.py - confirms both branches'
     valid/test rows refer to the same images in the same order before fusing."""
     manifest = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     _, _, resnet_filenames = load_resnet_features(split)

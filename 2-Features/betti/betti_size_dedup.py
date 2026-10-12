@@ -1,6 +1,6 @@
-# Betti vectors at 128x128 and 224x224 again, same math as betti_resolution.py,
+# Betti vectors at 128x128 and 224x224 again, same math as betti_size.py,
 # but reading from 1-Data/splits/ instead of the original train/valid/test
-# folders. betti_resolution.py stays as the record of the run on the leaky split.
+# folders. betti_size.py stays as the record of the run on the leaky split.
 
 import numpy as np, pandas as pd, gudhi, time, os
 from PIL import Image
@@ -24,7 +24,7 @@ def load_split(split, size):
 
 
 def betti_vector(img, size, n_thresholds=100):
-    """Sweep sublevel-set thresholds over each channel, same logic as betti_resolution.py."""
+    """Sweep sublevel-set thresholds over each channel, same logic as betti_size.py."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [img.mean(axis=2), img[:, :, 0].astype(float), img[:, :, 1].astype(float), img[:, :, 2].astype(float)]
     out = []

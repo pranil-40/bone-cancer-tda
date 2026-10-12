@@ -1,6 +1,6 @@
-# Same Betti vector extraction as betti_curves.py, but with one cubical complex
+# Same Betti vector extraction as betti.py, but with one cubical complex
 # per channel instead of one per threshold, and images processed in parallel.
-# Output should match betti_curves.py, just faster.
+# Output should match betti.py, just faster.
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ def load_split(split):
     return np.array(images), np.array(labels)
 
 def betti_vector_fast(image_rgb, n_thresholds=100):
-    """Same output as betti_vector() in betti_curves.py, but reads persistence pairs once per channel
+    """Same output as betti_vector() in betti.py, but reads persistence pairs once per channel
     and counts them across thresholds instead of rebuilding the complex each time."""
     thresholds = np.linspace(0, 255, n_thresholds)
     channels = [

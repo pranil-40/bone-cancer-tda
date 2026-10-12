@@ -1,11 +1,10 @@
-# Feature-level late fusion. Projects the 800-dim Betti vector (128x128,
-# 1-Data/splits/) down to 32 dims and the 512-dim frozen ResNet-18 embedding
-# (extract_resnet18.py) down to 32 dims, concatenates them into a 64-dim
-# vector, and classifies with a single linear layer. Both projections and the
-# classifier are trained together. The ResNet backbone stays frozen (features
-# are pre-extracted).
-# Same splits as everything else, so the naming-family confound described in
-# the README still applies.
+# Same late fusion architecture and training setup as fusion18.py,
+# with the CNN branch swapped from ResNet-18 (512-dim) to ResNet-50 (2048-dim,
+# from resnet50.py). Everything else (batch_size=4, LR=1e-3, early
+# stopping patience 12, LR-reduction patience 5, best checkpoint restore) is
+# identical so the two results are comparable.
+# Same splits as everything else, so the naming-family confound in the README
+# still applies.
 
 import copy
 import os
@@ -21,9 +20,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, TensorDataset
 
 base = r"C:\projects\bone_cancer_tda"
-SIZE = 128
-LR = 1e-3  # XGBoost's learning_rate=0.3 is a boosting shrinkage value, not an NN
-           # step size, and would diverge here
+LR = 1e-3
 MAX_EPOCHS = 50
 BATCH_SIZE = 4
 LR_PATIENCE = 5
@@ -33,10 +30,10 @@ torch.manual_seed(42)
 
 
 def load_split_features(split):
-    """Load the 800-dim Betti features (positional order, no rows dropped relative to
-    1-Data/splits/) and the 512-dim ResNet features (filename-keyed), then join by
-    filename so a silent misalignment can't slip through."""
-    betti = np.load(f"betti_128_dedup.npz")
+    """Load the 800-dim Betti features (positional order) and the 2048-dim
+    ResNet-50 features (filename-keyed), joined by filename so a silent
+    misalignment can't slip through - same pattern as fusion18.py."""
+    betti = np.load("betti_128_dedup.npz")
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
     X_tda = betti[f"X{suffix}"]
     y_tda = betti[f"y{suffix}"]
@@ -44,21 +41,21 @@ def load_split_features(split):
     manifest = pd.read_csv(os.path.join(base, "1-Data", "splits", f"{split}.csv"))
     assert len(manifest) == len(X_tda), f"{split}: manifest has {len(manifest)} rows, betti features have {len(X_tda)}"
 
-    resnet = np.load(f"resnet18_features_{split}.npz", allow_pickle=True)
+    resnet = np.load(f"resnet50_features_{split}.npz", allow_pickle=True)
     X_cnn, y_cnn, resnet_filenames = resnet["X"], resnet["y"], resnet["filename"]
     assert list(resnet_filenames) == list(manifest["filename"]), \
-        f"{split}: resnet feature order doesn't match 1-Data/splits/{split}.csv order"
-    assert np.array_equal(y_tda, y_cnn), f"{split}: betti and resnet labels disagree after alignment check"
+        f"{split}: resnet50 feature order doesn't match 1-Data/splits/{split}.csv order"
+    assert np.array_equal(y_tda, y_cnn), f"{split}: betti and resnet50 labels disagree after alignment check"
 
     return X_tda, X_cnn, y_tda
 
 
 class LateFusionNet(nn.Module):
-    """TDA branch (800->32) + CNN branch (512->32) -> concat(64) -> single-logit classifier."""
-    def __init__(self):
+    """TDA branch (800->32) + CNN branch (2048->32) -> concat(64) -> single-logit classifier."""
+    def __init__(self, cnn_dim):
         super().__init__()
         self.tda_branch = nn.Sequential(nn.Linear(800, 32), nn.ReLU())
-        self.cnn_branch = nn.Sequential(nn.Linear(512, 32), nn.ReLU())
+        self.cnn_branch = nn.Sequential(nn.Linear(cnn_dim, 32), nn.ReLU())
         self.classifier = nn.Linear(64, 1)
 
     def forward(self, tda, cnn):
@@ -113,15 +110,15 @@ if __name__ == "__main__":
     Xva_tda_t, Xva_cnn_t, yva_t = to_tensors(Xva_tda, Xva_cnn, yva)
     Xte_tda_t, Xte_cnn_t, yte_t = to_tensors(Xte_tda, Xte_cnn, yte)
 
-    train_dl = DataLoader(TensorDataset(Xtr_tda_t, Xtr_cnn_t, ytr_t), batch_size=BATCH_SIZE, shuffle=True)
+    train_dl = DataLoader(TensorDataset(Xtr_tda_t, Xtr_cnn_t, ytr_t),
+                           batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 
-    model = LateFusionNet()
+    model = LateFusionNet(cnn_dim=Xtr_cnn.shape[1])
     opt = torch.optim.Adam(model.parameters(), lr=LR)
     scheduler = ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=LR_PATIENCE)
     lossf = nn.BCEWithLogitsLoss()
 
     best_auc, best_epoch, best_state, epochs_no_improve = -1.0, 0, None, 0
-    val_auc_history = []
 
     for epoch in range(1, MAX_EPOCHS + 1):
         model.train()
@@ -134,7 +131,6 @@ if __name__ == "__main__":
 
         val_probs = predict_probs(model, Xva_tda_t, Xva_cnn_t)
         val_auc = roc_auc_score(yva, val_probs)
-        val_auc_history.append(val_auc)
         current_lr = opt.param_groups[0]["lr"]
         scheduler.step(val_auc)
 
@@ -162,9 +158,14 @@ if __name__ == "__main__":
     test_probs = predict_probs(model, Xte_tda_t, Xte_cnn_t)
     metrics = evaluate(yte, test_probs)
 
-    print(f"\n=== Test-set results (late fusion, best checkpoint epoch {best_epoch}) ===")
+    print(f"\n=== Test-set results (TDA+ResNet50 late fusion, best checkpoint epoch {best_epoch}) ===")
     for k, v in metrics.items():
         print(f"{k}: {v:.4f}")
 
     print(f"\nFeature dimension flow: TDA {Xtr_tda.shape[1]} -> 32, CNN {Xtr_cnn.shape[1]} -> 32, "
           f"concat -> {32+32}, classifier -> 1")
+
+    print(f"\n=== Comparison ===")
+    print(f"TDA+ResNet18 fusion (fusion18.py): AUC 0.9751")
+    print(f"ResNet-50 alone (cnn.py):      AUC 0.9486")
+    print(f"TDA+ResNet50 fusion (this run):             AUC {metrics['AUC']:.4f}")

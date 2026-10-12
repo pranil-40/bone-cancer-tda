@@ -1,4 +1,4 @@
-# Compares the MIN_LIFE = 0/5/10/20 feature sets from betti_min_lifetime.py
+# Compares the MIN_LIFE = 0/5/10/20 feature sets from betti_minlife.py
 # using a fixed Random Forest config, to see whether dropping short-lived
 # persistence pairs helps validation AUC.
 

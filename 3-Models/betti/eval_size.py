@@ -1,6 +1,6 @@
 # Test-set numbers for RF / XGBoost / MLP on the resolution-swept features from
-# betti_resolution.py (128x128 or 224x224). Compare with eval_64.py and
-# tuned_models.py for 64x64. These use the original leaky split, so read the
+# betti_size.py (128x128 or 224x224). Compare with eval_64.py and
+# tuned.py for 64x64. These use the original leaky split, so read the
 # data leakage section of the README before taking the comparison too seriously.
 
 import numpy as np
@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
 from xgboost import XGBClassifier
 
-SIZE = 224  # 128 or 224, match the betti_resolution.py run
+SIZE = 224  # 128 or 224, match the betti_size.py run
 
 d = np.load(f"betti_{SIZE}_orig.npz")
 s = StandardScaler()

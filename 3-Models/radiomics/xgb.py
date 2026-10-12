@@ -1,6 +1,6 @@
 # Trains and evaluates XGBoost on the radiomics features from
-# extract_radiomics.py. Starts from the hyperparameters already tuned for the
-# Betti-vector XGBoost (tune_hyperparameters.py, eval_resolution_dedup.py) and
+# extract.py. Starts from the hyperparameters already tuned for the
+# Betti-vector XGBoost (tune.py, eval_size_dedup.py) and
 # checks them against validation AUC on a very different feature space (83
 # named radiomics features vs. 800 anonymous Betti dimensions). Same
 # one-at-a-time sweep around a reference point as before, only re-tuning where
@@ -21,7 +21,7 @@ BETTI_XGB_PARAMS = dict(n_estimators=200, max_depth=15, learning_rate=0.3,
 
 
 def load_split(split):
-    df = pd.read_csv(os.path.join(base, "2-Features", "radiomics", f"radiomics_features_{split}.csv"))
+    df = pd.read_csv(os.path.join(base, "2-Features", "radiomics", f"full_{split}.csv"))
     y = df["cancer"].to_numpy()
     X = df.drop(columns=["filename", "cancer"]).to_numpy()
     feature_names = [c for c in df.columns if c not in ("filename", "cancer")]
@@ -41,7 +41,7 @@ def val_auc(params, X_train, y_train, X_val, y_val):
 
 
 def sweep_and_pick(param_name, values, base_params, X_train, y_train, X_val, y_val):
-    """Same style as tune_hyperparameters.py: vary one hyperparameter around the reused
+    """Same style as tune.py: vary one hyperparameter around the reused
     Betti config, holding the others fixed, and report AUC for each value."""
     print(f"\n-- {param_name} (baseline={base_params[param_name]}) --")
     best_v, best_auc = base_params[param_name], None

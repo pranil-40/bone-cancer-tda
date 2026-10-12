@@ -3,7 +3,7 @@
 #      to look for a shortcut a classifier could pick up on
 #   2. perceptual hash check of a test sample against all of train, to catch
 #      near-identical images (crops, flips, rotations) that the filename-based
-#      split in split_by_filename.py would miss
+#      split in split_filename.py would miss
 
 import os
 import random

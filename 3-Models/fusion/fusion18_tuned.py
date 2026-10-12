@@ -1,4 +1,4 @@
-# Pushes the feature-level fusion model from late_fusion_resnet18.py (best AUC
+# Pushes the feature-level fusion model from fusion18.py (best AUC
 # in the project so far at 0.9751) further. That script uses the simplest setup
 # (single Linear(800->32) and Linear(512->32) branches, one linear head,
 # batch_size=4) and stays as the reference result. Changes here are for
@@ -9,8 +9,8 @@
 #   - the classifier is a small 2-layer MLP instead of one linear layer
 #   - Adam gets weight_decay (L2)
 #   - dropout / weight_decay / batch_size / learning_rate are then swept one at
-#     a time on validation AUC, same convention as tune_hyperparameters.py and
-#     xgboost_radiomics.py
+#     a time on validation AUC, same convention as tune.py and
+#     xgb.py
 # Same splits as everything else, so the naming-family confound in the README
 # still applies.
 
@@ -36,7 +36,7 @@ BASELINE_CONFIG = {"dropout": 0.3, "weight_decay": 1e-4, "batch_size": 32, "lr":
 
 
 def load_split_features(split):
-    """Same load, join and alignment check as late_fusion_resnet18.py."""
+    """Same load, join and alignment check as fusion18.py."""
     betti = np.load("betti_128_dedup.npz")
     suffix = {"train": "_train", "valid": "_val", "test": "_test"}[split]
     X_tda = betti[f"X{suffix}"]

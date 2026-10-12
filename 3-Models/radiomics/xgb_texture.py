@@ -1,6 +1,6 @@
 # Trains and evaluates XGBoost on the texture-only features from
-# extract_radiomics_texture.py. Starts from the config that transferred well in
-# xgboost_radiomics.py instead of the original Betti config, since that's the
+# extract_texture.py. Starts from the config that transferred well in
+# xgb.py instead of the original Betti config, since that's the
 # closer reference point. Same one-at-a-time sweeps, re-tuning only where a
 # sweep beats the baseline.
 
@@ -19,7 +19,7 @@ RADIOMICS_XGB_PARAMS = dict(n_estimators=200, max_depth=9, learning_rate=0.1,
 
 
 def load_split(split):
-    df = pd.read_csv(os.path.join(base, "2-Features", "radiomics", f"radiomics_texture_features_{split}.csv"))
+    df = pd.read_csv(os.path.join(base, "2-Features", "radiomics", f"texture_{split}.csv"))
     y = df["cancer"].to_numpy()
     X = df.drop(columns=["filename", "cancer"]).to_numpy()
     feature_names = [c for c in df.columns if c not in ("filename", "cancer")]
@@ -39,7 +39,7 @@ def val_auc(params, X_train, y_train, X_val, y_val):
 
 
 def sweep_and_pick(param_name, values, base_params, X_train, y_train, X_val, y_val):
-    """Same style as tune_hyperparameters.py and xgboost_radiomics.py: vary one hyperparameter around the reused
+    """Same style as tune.py and xgb.py: vary one hyperparameter around the reused
     config, holding the others fixed, and report AUC for each value."""
     print(f"\n-- {param_name} (baseline={base_params[param_name]}) --")
     best_v, best_auc = base_params[param_name], None

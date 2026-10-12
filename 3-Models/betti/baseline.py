@@ -1,6 +1,6 @@
 # Baseline RF / XGBoost / MLP on the 64x64 Betti vectors with default
 # hyperparameters. A quick check that the features carry any signal before
-# spending time on tune_hyperparameters.py.
+# spending time on tune.py.
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier

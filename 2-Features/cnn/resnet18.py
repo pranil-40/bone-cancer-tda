@@ -1,6 +1,6 @@
 # Pulls 512-dim ResNet-18 embeddings (fc layer swapped for Identity) for every
 # image in 1-Data/splits/ at 128x128. These feed the CNN branch of the late
-# fusion models. The backbone was never fine-tuned in transfer_learning.py (only
+# fusion models. The backbone was never fine-tuned in cnn.py (only
 # the fc head was trained), so plain ImageNet weights give the same features
 # and that script doesn't need to run first.
 # Saved per split as .npz, keyed by filename so the fusion scripts can check

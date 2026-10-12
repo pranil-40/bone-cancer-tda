@@ -1,8 +1,8 @@
-# Replaces the filename-based split in split_by_filename.py. check_duplicates.py
+# Replaces the filename-based split in split_filename.py. dupes.py
 # showed the same X-ray can show up under completely different filenames (the
 # dataset looks like a merge of several Roboflow projects), so matching on base
 # filename missed real duplicates. This groups all 8,811 images by perceptual
-# hash (Hamming distance <= 10, same threshold as check_duplicates.py) across
+# hash (Hamming distance <= 10, same threshold as dupes.py) across
 # all three original splits at once, then reassigns whole groups to one split
 # using the same proportion and class-balance logic as before.
 # Also prints mean brightness and cancer ratio per filename "naming family", to
@@ -109,7 +109,7 @@ def build_dup_groups(hashes, threshold=DUP_THRESHOLD, chunk=300):
 
 
 def assign_groups(df):
-    """Same greedy proportional/class-balance assignment as split_by_filename.py,
+    """Same greedy proportional/class-balance assignment as split_filename.py,
     but keyed by phash group id instead of exact base filename."""
     total_images = len(df)
     total_cancer = df["cancer"].sum()
